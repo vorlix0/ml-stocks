@@ -56,6 +56,8 @@ repos:
 
 ---
 
+# to extend this list 
+
 ## 🟢 Nice-to-have (future)
 
 - [ ] Add input data validation with Pydantic
