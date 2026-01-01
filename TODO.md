@@ -15,6 +15,7 @@
 - [x] **Remove unused dependencies** - removed tensorflow, seaborn; moved jupyter to optional [notebook]
 - [x] **Unit tests** - added `tests/` folder with 53 tests for FeatureEngineer, RiskMetrics, TradingStrategy, ModelTrainer
 - [x] **Directory structure** - organized project into `data/`, `models/`, `outputs/` directories
+- [x] **Add pre-commit hooks** - added `.pre-commit-config.yaml` with ruff, ruff-format, and mypy hooks
 
 ---
 
@@ -36,22 +37,6 @@ jobs:
           python-version: '3.12'
       - run: pip install -e ".[dev]"
       - run: pytest tests/
-```
-
-### 7. Add pre-commit hooks
-File `.pre-commit-config.yaml`:
-
-```yaml
-repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.6
-    hooks:
-      - id: ruff
-      - id: ruff-format
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.7.1
-    hooks:
-      - id: mypy
 ```
 
 ---
