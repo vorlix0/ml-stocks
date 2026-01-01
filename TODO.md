@@ -56,7 +56,7 @@ repos:
 
 ---
 
-# to extend this list 
+# to extend this list
 
 ## 🟢 Nice-to-have (future)
 
