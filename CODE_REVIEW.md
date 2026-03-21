@@ -467,10 +467,18 @@ The project targets Python ≥ 3.10. The `Optional[str]` and `Optional[List[str]
 ```python
 # Before (Python 3.9 style)
 from typing import List, Optional
-def load_csv_safe(path: str, required_columns: Optional[List[str]] = None, ...) -> pd.DataFrame:
+def load_csv_safe(
+    path: str,
+    required_columns: Optional[List[str]] = None,
+    # ... other params
+) -> pd.DataFrame: ...
 
 # After (Python 3.10+ style)
-def load_csv_safe(path: str, required_columns: list[str] | None = None, ...) -> pd.DataFrame:
+def load_csv_safe(
+    path: str,
+    required_columns: list[str] | None = None,
+    # ... other params
+) -> pd.DataFrame: ...
 ```
 
 `ruff` rule `UP` (pyupgrade) would flag this; it is already enabled in `pyproject.toml`.
@@ -624,7 +632,7 @@ For large datasets (many tickers, long histories), this doubles RAM usage. Docum
 | 8 | Translate Polish docstring in `exceptions.py` | Low | Quality | Trivial |
 | 9 | Translate Polish comment in `logger.py` | Low | Quality | Trivial |
 | 10 | Rename `load_pickle_safe` → `load_model_safe` | Low | Quality | Trivial |
-| 11 | Use Python 3.10+ union type hints (`X \| None`) | Low | Quality | Low |
+| 11 | Use Python 3.10+ union type hints (`X | None`) | Low | Quality | Low |
 | 12 | Convert `Plotter` static class to module functions | Low | Design | Low |
 | 13 | Config objects passed as globals – prefer injection | Medium | Architecture | Medium |
 | 14 | Add tests for `TradingSimulator`, `Plotter`, `helpers` | Medium | Testing | Medium |
