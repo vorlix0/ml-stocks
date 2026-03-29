@@ -1,9 +1,9 @@
 """
 Shared fixtures for tests.
 """
-import pytest
-import pandas as pd
 import numpy as np
+import pandas as pd
+import pytest
 
 
 @pytest.fixture
@@ -11,12 +11,12 @@ def sample_ohlcv_data() -> pd.DataFrame:
     """Creates sample OHLCV data for testing."""
     np.random.seed(42)
     dates = pd.date_range(start='2023-01-01', periods=200, freq='D')
-    
+
     # Generate realistic price data
     base_price = 100
     returns = np.random.randn(200) * 0.02
     close = base_price * np.cumprod(1 + returns)
-    
+
     df = pd.DataFrame({
         'Open': close * (1 + np.random.randn(200) * 0.005),
         'High': close * (1 + np.abs(np.random.randn(200) * 0.01)),
@@ -24,7 +24,7 @@ def sample_ohlcv_data() -> pd.DataFrame:
         'Close': close,
         'Volume': np.random.randint(1_000_000, 10_000_000, size=200)
     }, index=dates)
-    
+
     return df
 
 
