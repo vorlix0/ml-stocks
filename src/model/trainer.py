@@ -6,7 +6,7 @@ from pathlib import Path
 
 import joblib
 import pandas as pd
-from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.base import ClassifierMixin
 from sklearn.model_selection import train_test_split
 
 from config import MODEL_CONFIG
@@ -16,11 +16,13 @@ from src.exceptions import (
     ModelNotFoundError,
     ModelNotTrainedError,
 )
+from src.model.base_trainer import BaseTrainer
+from src.model.model_factory import create_model
 
 logger = logging.getLogger("forex_ml.model.trainer")
 
 
-class ModelTrainer:
+class ModelTrainer(BaseTrainer):
     """Class for training ML models."""
 
     def __init__(self, df: pd.DataFrame):
@@ -39,6 +41,16 @@ class ModelTrainer:
         self.model = None
         self.feature_cols = self._get_feature_columns()
 
+        # Data splits – initialized here so attributes always exist
+        self.X_train = None
+        self.X_test = None
+        self.y_train = None
+        self.y_test = None
+        self.X_tr = None
+        self.X_val = None
+        self.y_tr = None
+        self.y_val = None
+
     def _validate_input(self, df: pd.DataFrame) -> None:
         """Validates input data."""
         if df.empty:
@@ -49,16 +61,6 @@ class ModelTrainer:
                 "Missing 'Target' column in data. "
                 "Run process_data.py first"
             )
-
-        # Data splits
-        self.X_train = None
-        self.X_test = None
-        self.y_train = None
-        self.y_test = None
-        self.X_tr = None
-        self.X_val = None
-        self.y_tr = None
-        self.y_val = None
 
     def _get_feature_columns(self) -> list[str]:
         """Returns list of feature columns."""
@@ -96,9 +98,9 @@ class ModelTrainer:
             shuffle=False
         )
 
-    def train(self) -> GradientBoostingClassifier:
+    def train(self) -> ClassifierMixin:
         """
-        Trains GradientBoosting model.
+        Trains model configured by MODEL_CONFIG.MODEL_TYPE.
 
         Returns:
             Trained model
@@ -106,13 +108,14 @@ class ModelTrainer:
         if self.X_tr is None:
             self.prepare_data()
 
-        self.model = GradientBoostingClassifier(
+        self.model = create_model(
+            MODEL_CONFIG.MODEL_TYPE,
             n_estimators=MODEL_CONFIG.N_ESTIMATORS,
             max_depth=MODEL_CONFIG.MAX_DEPTH,
             learning_rate=MODEL_CONFIG.LEARNING_RATE,
             subsample=MODEL_CONFIG.SUBSAMPLE,
             random_state=MODEL_CONFIG.RANDOM_STATE,
-            verbose=0
+            verbose=0,
         )
 
         self.model.fit(self.X_tr, self.y_tr)
@@ -167,7 +170,7 @@ class ModelTrainer:
         logger.info(f"Model saved to: {path}")
 
     @staticmethod
-    def load_model(path: str = None) -> GradientBoostingClassifier:
+    def load_model(path: str = None) -> ClassifierMixin:
         """
         Loads model from file.
 

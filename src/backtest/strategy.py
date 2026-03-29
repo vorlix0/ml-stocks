@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from config import BACKTEST_CONFIG
+from src.backtest.signal_filter import ADXFilter, NoFilter, SignalFilter
 
 logger = logging.getLogger("forex_ml.backtest.strategy")
 
@@ -33,31 +34,42 @@ class TradingStrategy:
         self,
         threshold: float = None,
         adx_threshold: int = None,
-        use_adx_filter: bool = False
+        use_adx_filter: bool = False,
+        signal_filter: SignalFilter | None = None,
     ) -> pd.Series:
         """
         Generates trading signals.
 
+        Accepts either a ``SignalFilter`` object (preferred) **or** the legacy
+        ``use_adx_filter`` boolean flag for backward compatibility.
+
         Args:
             threshold: Probability threshold (default from config)
-            adx_threshold: ADX threshold for trend filter (default from config)
-            use_adx_filter: Whether to use ADX filter
+            adx_threshold: ADX threshold used when ``use_adx_filter=True``
+                           and no explicit ``signal_filter`` is given.
+            use_adx_filter: Legacy flag — creates an ``ADXFilter`` when
+                            ``signal_filter`` is not provided.
+            signal_filter: A :class:`SignalFilter` instance that decides
+                           which signals survive.  When provided,
+                           ``use_adx_filter`` and ``adx_threshold`` are
+                           ignored.
 
         Returns:
             Series with signals (1 = buy, 0 = hold)
         """
         threshold = threshold or BACKTEST_CONFIG.PREDICTION_THRESHOLD
-        adx_threshold = adx_threshold or BACKTEST_CONFIG.ADX_THRESHOLD
 
-        if use_adx_filter:
-            signals = (
-                (self.df['Prediction'] > threshold) &
-                (self.df['ADX'] > adx_threshold)
-            ).astype(int)
-        else:
-            signals = (self.df['Prediction'] > threshold).astype(int)
+        raw_signals = (self.df['Prediction'] > threshold).astype(int)
 
-        return signals
+        # Resolve the filter to use
+        if signal_filter is None:
+            if use_adx_filter:
+                adx_threshold = adx_threshold or BACKTEST_CONFIG.ADX_THRESHOLD
+                signal_filter = ADXFilter(threshold=adx_threshold)
+            else:
+                signal_filter = NoFilter()
+
+        return signal_filter.apply(raw_signals, self.df)
 
     def calculate_strategy_returns(self, signals: pd.Series) -> pd.Series:
         """

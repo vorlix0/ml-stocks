@@ -65,6 +65,9 @@ class ModelConfig:
     VALIDATION_SIZE: float = 0.2
     RANDOM_STATE: int = 42
 
+    # Model type – must be a key in src.model.model_factory.MODEL_REGISTRY
+    MODEL_TYPE: str = "gradient_boosting"
+
     # GradientBoosting hyperparameters
     N_ESTIMATORS: int = 300
     MAX_DEPTH: int = 5

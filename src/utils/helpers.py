@@ -73,7 +73,7 @@ def load_csv_safe(
     return df
 
 
-def load_pickle_safe(path: str) -> object:
+def load_model_safe(path: str) -> object:
     """
     Safely loads model file (joblib format).
 

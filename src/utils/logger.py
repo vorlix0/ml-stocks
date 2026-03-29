@@ -70,5 +70,5 @@ def get_logger(name: str = "forex_ml") -> logging.Logger:
     return logger
 
 
-# Domyślny logger dla projektu
+# Default logger for the project
 logger = setup_logger()

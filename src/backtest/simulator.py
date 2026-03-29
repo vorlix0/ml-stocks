@@ -26,7 +26,11 @@ class TradingSimulator:
 
     def simulate(self, signals: pd.Series) -> dict[str, float]:
         """
-        Simulates trading based on signals.
+        Simulates trading based on signals (vectorized implementation).
+
+        Uses yesterday's signal as the position for today, which avoids
+        look-ahead bias.  The portfolio value is computed in a single
+        vectorized pass instead of a Python ``iterrows`` loop.
 
         Args:
             signals: Series with signals (1 = buy, 0 = hold/sell)
@@ -34,28 +38,18 @@ class TradingSimulator:
         Returns:
             Dictionary with simulation results
         """
-        cash = self.initial_capital
-        shares = 0.0
-        portfolio_values: list[float] = []
+        df = self.df[['Close']].copy()
+        df['Signal'] = signals
 
-        df_sim = self.df.copy()
-        df_sim['Signal'] = signals
+        # Use previous day's signal to determine today's position
+        df['Position'] = df['Signal'].shift(1).fillna(0)
+        df['Daily_Return'] = df['Close'].pct_change().fillna(0)
+        df['Strategy_Return'] = df['Position'] * df['Daily_Return']
 
-        for _idx, row in df_sim.iterrows():
-            signal = row['Signal']
-            close_price = row['Close']
+        # Compounding portfolio value
+        df['Portfolio'] = self.initial_capital * (1 + df['Strategy_Return']).cumprod()
 
-            if signal == 1 and shares == 0:  # Buy if we don't have shares
-                shares = cash / close_price
-                cash = 0
-            elif signal == 0 and shares > 0:  # Sell if we have shares
-                cash = shares * close_price
-                shares = 0
-
-            # Portfolio value
-            current_value = cash + (shares * close_price)
-            portfolio_values.append(current_value)
-
+        portfolio_values: list[float] = df['Portfolio'].tolist()
         final_value = portfolio_values[-1] if portfolio_values else self.initial_capital
         profit = final_value - self.initial_capital
         roi = (profit / self.initial_capital) * 100
@@ -65,7 +59,7 @@ class TradingSimulator:
             'final_value': final_value,
             'profit': profit,
             'roi': roi,
-            'portfolio_values': portfolio_values
+            'portfolio_values': portfolio_values,
         }
 
     def simulate_buy_and_hold(self) -> dict[str, float]:

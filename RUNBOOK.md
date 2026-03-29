@@ -173,10 +173,10 @@ Downloads raw OHLCV data from Yahoo Finance and saves it to `data/raw/`.
 
 ```bash
 # macOS / Linux
-python download_finanse_data.py
+python download_finance_data.py
 
 # Windows
-python download_finanse_data.py
+python download_finance_data.py
 ```
 
 Expected output (example):
@@ -227,19 +227,19 @@ Model saved to models/model.joblib
 
 **macOS / Linux:**
 ```bash
-python download_finanse_data.py && \
+python download_finance_data.py && \
 python process_data.py && \
 python train_model.py
 ```
 
 **Windows (Command Prompt):**
 ```cmd
-python download_finanse_data.py && python process_data.py && python train_model.py
+python download_finance_data.py && python process_data.py && python train_model.py
 ```
 
 **Windows (PowerShell):**
 ```powershell
-python download_finanse_data.py; python process_data.py; python train_model.py
+python download_finance_data.py; python process_data.py; python train_model.py
 ```
 
 ---
@@ -326,7 +326,7 @@ pip install -e .
 
 You must run the pipeline steps in order:
 ```
-download_finanse_data.py  →  process_data.py  →  train_model.py  →  test_model.py
+download_finance_data.py  →  process_data.py  →  train_model.py  →  test_model.py
 ```
 
 ### `ModelNotFoundError` when running the backtest
