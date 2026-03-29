@@ -1,7 +1,7 @@
 """
 Model module - training and evaluation of ML models.
 """
-from .trainer import ModelTrainer
 from .evaluator import ModelEvaluator
+from .trainer import ModelTrainer
 
 __all__ = ['ModelTrainer', 'ModelEvaluator']

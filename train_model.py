@@ -2,12 +2,13 @@
 """Script for training ML model."""
 
 import sys
+
 import pandas as pd
 
-from config import DATA_CONFIG, BACKTEST_CONFIG
-from src.model import ModelTrainer, ModelEvaluator
+from config import BACKTEST_CONFIG, DATA_CONFIG
+from src.exceptions import DataNotFoundError, ForexMLError
+from src.model import ModelEvaluator, ModelTrainer
 from src.utils import Plotter, load_csv_safe, validate_features_data
-from src.exceptions import ForexMLError, DataNotFoundError
 
 
 def load_data() -> pd.DataFrame:
@@ -22,27 +23,27 @@ def main():
     try:
         # Load data
         df = load_data()
-    
+
         print(f"Data shape: {df.shape}")
         print(f"NaN in data: {df.isna().sum().sum()}")
-        print(f"\nTarget distribution:")
+        print("\nTarget distribution:")
         print(df['Target'].value_counts())
         print(f"% UP: {(df['Target'] == 1).sum() / len(df) * 100:.2f}%")
-        
+
         # Initialize trainer
         trainer = ModelTrainer(df)
         trainer.prepare_data()
-        
+
         # Train model
         model = trainer.train()
-        
+
         # Validation evaluation
         evaluator = ModelEvaluator(model, trainer.X_test, trainer.y_test)
         evaluator.evaluate_validation(trainer.X_val, trainer.y_val)
-        
+
         # Test evaluation
         evaluator.print_evaluation()
-        
+
         # Feature importance
         importances = trainer.get_feature_importances()
         Plotter.print_feature_importance_analysis(importances)
@@ -50,10 +51,10 @@ def main():
             importances,
             save_path=BACKTEST_CONFIG.feature_importance_plot_file
         )
-        
+
         # Save model
         trainer.save_model()
-    
+
     except DataNotFoundError as e:
         print(f"\n❌ ERROR: {e}")
         print("Run first: python process_data.py")
