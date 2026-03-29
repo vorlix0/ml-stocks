@@ -25,7 +25,7 @@ pip install -e ".[notebook]"  # With Jupyter
 
 ```bash
 # 1. Download financial data
-python download_finanse_data.py
+python download_finance_data.py
 
 # 2. Process data and create features
 python process_data.py
@@ -39,7 +39,7 @@ python test_model.py
 
 Or run all at once:
 ```bash
-python download_finanse_data.py && python process_data.py && python train_model.py && python test_model.py
+python download_finance_data.py && python process_data.py && python train_model.py && python test_model.py
 ```
 
 ### Running Tests

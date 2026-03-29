@@ -2,15 +2,19 @@
 Module for downloading financial data.
 """
 import logging
+import re
 from pathlib import Path
 
 import pandas as pd
 import yfinance as yf
 
 from config import DATA_CONFIG
-from src.exceptions import DownloadError, EmptyDataError
+from src.exceptions import DownloadError, EmptyDataError, InvalidDataError
 
 logger = logging.getLogger("forex_ml.data.downloader")
+
+# Allowlist pattern for ticker symbols (e.g. AAPL, BRK.B, ^GSPC, BTC-USD)
+_TICKER_PATTERN = re.compile(r'^[A-Z0-9.\-\^]{1,10}$')
 
 
 class DataDownloader:
@@ -24,10 +28,32 @@ class DataDownloader:
             ticker: Ticker symbol (default from config)
             start_date: Start date (default from config)
             end_date: End date (default from config)
+
+        Raises:
+            InvalidDataError: When ticker symbol has an invalid format
         """
-        self.ticker = ticker or DATA_CONFIG.TICKER
+        raw_ticker = ticker or DATA_CONFIG.TICKER
+        self._validate_ticker(raw_ticker)
+        self.ticker = raw_ticker.upper()
         self.start_date = start_date or DATA_CONFIG.START_DATE
         self.end_date = end_date or DATA_CONFIG.END_DATE
+
+    @staticmethod
+    def _validate_ticker(ticker: str) -> None:
+        """Validates ticker symbol against an allowlist pattern.
+
+        Args:
+            ticker: Ticker symbol to validate
+
+        Raises:
+            InvalidDataError: When ticker format is invalid
+        """
+        if not _TICKER_PATTERN.match(ticker.upper()):
+            raise InvalidDataError(
+                f"Invalid ticker symbol: '{ticker}'. "
+                "Ticker must be 1-10 characters and contain only "
+                "uppercase letters, digits, '.', '-', or '^'."
+            )
 
     def download(self) -> pd.DataFrame:
         """

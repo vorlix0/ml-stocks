@@ -34,5 +34,5 @@ class ModelNotTrainedError(ForexMLError):
 
 
 class DownloadError(ForexMLError):
-    """Wyjątek rzucany gdy pobieranie danych się nie powiedzie."""
+    """Exception raised when downloading data fails."""
     pass

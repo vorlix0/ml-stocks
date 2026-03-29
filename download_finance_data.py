@@ -1,4 +1,4 @@
-# download_finanse_data.py
+# download_finance_data.py
 """Script for downloading financial data."""
 
 from src.data import DataDownloader
