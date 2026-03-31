@@ -19,10 +19,10 @@
 
 ---
 
-## 🟠 To Do
+## ✅ Additional Completions
 
-### 1. Add CI/CD (GitHub Actions)
-File `.github/workflows/test.yml`:
+### 1. Add CI/CD (GitHub Actions) ✅
+File `.github/workflows/test.yml` (already implemented with Python 3.10/3.11/3.12 matrix):
 
 ```yaml
 name: Tests
@@ -45,9 +45,9 @@ jobs:
 
 ## 🟢 Nice-to-have (future)
 
-- [ ] Add input data validation with Pydantic
-- [ ] Experiment tracking with MLflow/Weights&Biases
-- [ ] Hyperparameter tuning with Optuna
+- [x] Add input data validation with Pydantic
+- [x] Experiment tracking with MLflow/Weights&Biases
+- [x] Hyperparameter tuning with Optuna
 - [ ] Feature store (e.g., Feast)
-- [ ] Containerization with Docker
-- [ ] CLI with Click/Typer instead of separate scripts
+- [x] Containerization with Docker
+- [x] CLI with Click/Typer instead of separate scripts

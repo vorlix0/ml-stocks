@@ -18,6 +18,7 @@ from src.exceptions import (
 )
 from src.model.base_trainer import BaseTrainer
 from src.model.model_factory import create_model
+from src.validators import validate_model_config
 
 logger = logging.getLogger("forex_ml.model.trainer")
 
@@ -98,15 +99,33 @@ class ModelTrainer(BaseTrainer):
             shuffle=False
         )
 
-    def train(self) -> ClassifierMixin:
+    def train(self, use_mlflow: bool = False) -> ClassifierMixin:
         """
         Trains model configured by MODEL_CONFIG.MODEL_TYPE.
+
+        Optionally logs parameters, metrics and the trained model to an
+        MLflow experiment (requires ``mlflow`` to be installed and an active
+        tracking server or local store).
+
+        Args:
+            use_mlflow: When *True*, wrap training in an MLflow run and log
+                hyperparameters, validation AUC and the fitted estimator.
 
         Returns:
             Trained model
         """
         if self.X_tr is None:
             self.prepare_data()
+
+        # Validate hyperparameters with Pydantic before training
+        validate_model_config(
+            n_estimators=MODEL_CONFIG.N_ESTIMATORS,
+            max_depth=MODEL_CONFIG.MAX_DEPTH,
+            learning_rate=MODEL_CONFIG.LEARNING_RATE,
+            subsample=MODEL_CONFIG.SUBSAMPLE,
+            validation_size=MODEL_CONFIG.VALIDATION_SIZE,
+            random_state=MODEL_CONFIG.RANDOM_STATE,
+        )
 
         self.model = create_model(
             MODEL_CONFIG.MODEL_TYPE,
@@ -118,8 +137,53 @@ class ModelTrainer(BaseTrainer):
             verbose=0,
         )
 
-        self.model.fit(self.X_tr, self.y_tr)
+        if use_mlflow:
+            self._train_with_mlflow()
+        else:
+            self.model.fit(self.X_tr, self.y_tr)
+
         return self.model
+
+    def _train_with_mlflow(self) -> None:
+        """Fits the model and logs run artefacts to MLflow."""
+        try:
+            import mlflow
+            import mlflow.sklearn
+            from sklearn.metrics import roc_auc_score
+        except ImportError as exc:
+            raise ImportError(
+                "MLflow is required for experiment tracking. "
+                "Install it with: pip install mlflow"
+            ) from exc
+
+        params = {
+            "model_type": MODEL_CONFIG.MODEL_TYPE,
+            "n_estimators": MODEL_CONFIG.N_ESTIMATORS,
+            "max_depth": MODEL_CONFIG.MAX_DEPTH,
+            "learning_rate": MODEL_CONFIG.LEARNING_RATE,
+            "subsample": MODEL_CONFIG.SUBSAMPLE,
+            "random_state": MODEL_CONFIG.RANDOM_STATE,
+        }
+
+        with mlflow.start_run():
+            mlflow.log_params(params)
+
+            self.model.fit(self.X_tr, self.y_tr)
+
+            # Validation metrics
+            val_proba = self.model.predict_proba(self.X_val)[:, 1]
+            val_auc = roc_auc_score(self.y_val, val_proba)
+            mlflow.log_metric("val_auc", val_auc)
+
+            # Test metrics
+            test_proba = self.model.predict_proba(self.X_test)[:, 1]
+            test_auc = roc_auc_score(self.y_test, test_proba)
+            mlflow.log_metric("test_auc", test_auc)
+
+            mlflow.sklearn.log_model(self.model, artifact_path="model")
+            logger.info(
+                f"MLflow run finished – val_auc={val_auc:.4f}, test_auc={test_auc:.4f}"
+            )
 
     def get_feature_importances(self) -> pd.DataFrame:
         """
