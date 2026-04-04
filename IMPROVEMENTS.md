@@ -387,8 +387,8 @@ class DataConfig:
 
 ### 5.3 No Smoke Test for Complete Pipeline
 
-- **Problem:** Individual module tests pass, but a bug in how modules connect to each other would not be caught.
-- **Recommendation:** Add `tests/test_e2e.py` with synthetic data that flows through the full pipeline without network calls (see §3.2).
+- **Problem:** Individual module tests pass, but a bug in how modules connect to each other would not be caught. (See also §3.2 for the architecture context.)
+- **Recommendation:** Add `tests/test_e2e.py` using synthetic data (no network calls) that flows through `FeatureEngineer → ModelTrainer → TradingStrategy → TradingSimulator → RiskMetrics`. The test should assert that final Sharpe ratio and max drawdown values are within reasonable bounds.
 - **Files:** New `tests/test_e2e.py`
 
 ---
@@ -421,18 +421,17 @@ class DataConfig:
 
 ---
 
-### 6.3 No Environment Variable Support for Configuration
+### 6.3 Dependency Vulnerability Scanning Not in CI
 
-- **Problem:** Described in §3.3. Repeating here as a dependency/config management concern.
-- **Recommendation:** Use `os.environ.get()` or Pydantic `BaseSettings` for config values that users commonly change (ticker, dates, paths).
-- **Files:** `config.py`
+- **Problem:** There is no automated check for known vulnerabilities in `pyproject.toml` dependencies. A new CVE in `scikit-learn`, `pandas`, or `yfinance` would go unnoticed until a developer manually checks.
+- **Recommendation:** Add a `pip-audit` or `safety` step to `.github/workflows/test.yml` to fail the build when vulnerable dependency versions are detected.
 
----
+```yaml
+# .github/workflows/test.yml — add after `pytest tests/`
+- name: Security audit
+  run: pip install pip-audit && pip-audit
+```
 
-### 6.4 CI Tests Only on Latest Python Versions
-
-- **Problem:** `.github/workflows/test.yml` runs tests on Python 3.10, 3.11, and 3.12 but does not test on the minimum required version in its own `pyproject.toml` (`requires-python = ">=3.10"`). If this is already 3.10, verify the minimum is explicitly tested.
-- **Recommendation:** Ensure the matrix includes exactly `3.10` (not just `3.10.x` nightly) to catch compatibility regressions.
 - **Files:** `.github/workflows/test.yml`
 
 ---
@@ -463,8 +462,8 @@ class DataConfig:
 | 20 | Signal filter edge-case tests (§5.4) | Testing | Low | Low | 🟡 Low |
 | 21 | Reproducibility lock file (§6.1) | Config | Low | Low | 🟡 Low |
 | 22 | `ta` library version pin (§6.2) | Config | Low | Low | 🟡 Low |
-| 23 | Magic constant `top_n=10` (§2.5) | Code Quality | Low | Low | 🟡 Low |
-| 24 | Date-dependent integration test (§4.2) | Testing | Low | Low | 🟡 Low |
+| 23 | Dependency vulnerability scanning in CI (§6.3) | Config | Low | Medium | 🟠 Medium |
+| 24 | Magic constant `top_n=10` (§2.5) | Code Quality | Low | Low | 🟡 Low |
 
 ---
 
