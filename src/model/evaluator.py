@@ -1,9 +1,13 @@
 """
 Module for ML model evaluation.
+
+Uses lazy-initialization pattern to ensure predictions are computed once
+and cached, eliminating repeated guard checks across methods.
 """
 import logging
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score
 
@@ -11,9 +15,13 @@ logger = logging.getLogger("forex_ml.model.evaluator")
 
 
 class ModelEvaluator:
-    """Class for ML model evaluation."""
+    """Class for ML model evaluation.
 
-    def __init__(self, model, x_test: pd.DataFrame, y_test: pd.Series):
+    Predictions are lazily computed on first access via cached properties,
+    ensuring consistent state without repetitive None-checks.
+    """
+
+    def __init__(self, model: Any, x_test: pd.DataFrame, y_test: pd.Series):
         """
         Initializes evaluator.
 
@@ -26,14 +34,20 @@ class ModelEvaluator:
         self.X_test = x_test
         self.y_test = y_test
 
-        # Predictions
-        self.y_pred = None
-        self.y_pred_proba = None
+        # Mutable prediction cache (not using cached_property to keep
+        # backward compatibility with code that calls predict() explicitly)
+        self.y_pred: np.ndarray | None = None
+        self.y_pred_proba: np.ndarray | None = None
 
     def predict(self) -> None:
         """Makes predictions on test set."""
         self.y_pred = self.model.predict(self.X_test)
         self.y_pred_proba = self.model.predict_proba(self.X_test)[:, 1]
+
+    def _ensure_predictions(self) -> None:
+        """Ensure predictions have been computed (lazy initialization)."""
+        if self.y_pred is None:
+            self.predict()
 
     def get_metrics(self) -> dict[str, Any]:
         """
@@ -42,8 +56,7 @@ class ModelEvaluator:
         Returns:
             Dictionary with metrics
         """
-        if self.y_pred is None:
-            self.predict()
+        self._ensure_predictions()
 
         return {
             'accuracy': accuracy_score(self.y_test, self.y_pred),
@@ -58,15 +71,13 @@ class ModelEvaluator:
         Returns:
             String with classification report
         """
-        if self.y_pred is None:
-            self.predict()
+        self._ensure_predictions()
 
         return classification_report(self.y_test, self.y_pred)
 
     def print_evaluation(self) -> None:
         """Prints full model evaluation."""
-        if self.y_pred is None:
-            self.predict()
+        self._ensure_predictions()
 
         metrics = self.get_metrics()
 

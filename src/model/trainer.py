@@ -2,36 +2,50 @@
 Module for training ML models.
 """
 import logging
-from pathlib import Path
 
-import joblib
 import pandas as pd
 from sklearn.base import ClassifierMixin
-from sklearn.model_selection import train_test_split
 
 from config import MODEL_CONFIG
 from src.exceptions import (
     EmptyDataError,
     InvalidDataError,
-    ModelNotFoundError,
     ModelNotTrainedError,
 )
 from src.model.base_trainer import BaseTrainer
+from src.model.data_splitter import ChronologicalSplitter, DataSplitter
 from src.model.model_factory import create_model
+from src.model.model_repository import JoblibModelRepository, ModelRepository
 from src.validators import validate_model_config
 
 logger = logging.getLogger("forex_ml.model.trainer")
 
 
 class ModelTrainer(BaseTrainer):
-    """Class for training ML models."""
+    """Class for training ML models.
 
-    def __init__(self, df: pd.DataFrame):
+    Supports dependency injection of splitting strategy and persistence
+    backend, following the Open/Closed Principle.
+
+    Args:
+        df: DataFrame with features and target.
+        splitter: Data splitting strategy (defaults to ChronologicalSplitter).
+        repository: Model persistence backend (defaults to JoblibModelRepository).
+    """
+
+    def __init__(
+        self,
+        df: pd.DataFrame,
+        splitter: DataSplitter | None = None,
+        repository: ModelRepository | None = None,
+    ):
         """
         Initializes trainer.
 
         Args:
             df: DataFrame with features and target
+            splitter: Data splitting strategy (defaults to ChronologicalSplitter)
+            repository: Model persistence backend (defaults to JoblibModelRepository)
 
         Raises:
             EmptyDataError: When DataFrame is empty
@@ -41,6 +55,8 @@ class ModelTrainer(BaseTrainer):
         self.df = df
         self.model = None
         self.feature_cols = self._get_feature_columns()
+        self._splitter = splitter or ChronologicalSplitter()
+        self._repository = repository or JoblibModelRepository()
 
         # Data splits – initialized here so attributes always exist
         self.X_train = None
@@ -71,7 +87,7 @@ class ModelTrainer(BaseTrainer):
         ]
 
     def prepare_data(self) -> None:
-        """Prepares data for training (chronological split)."""
+        """Prepares data for training using the configured splitter."""
         x = self.df[self.feature_cols]
         y = self.df['Target']
 
@@ -82,22 +98,18 @@ class ModelTrainer(BaseTrainer):
 
         logger.info(f"After removing NaN: {x.shape}")
 
-        # Chronological train/test split
-        split_date = MODEL_CONFIG.SPLIT_DATE
-        self.X_train = x[x.index < split_date]
-        self.X_test = x[x.index >= split_date]
-        self.y_train = y[y.index < split_date]
-        self.y_test = y[y.index >= split_date]
+        split = self._splitter.split(x, y)
+
+        self.X_train = split.X_train
+        self.X_test = split.X_test
+        self.y_train = split.y_train
+        self.y_test = split.y_test
+        self.X_tr = split.X_tr
+        self.X_val = split.X_val
+        self.y_tr = split.y_tr
+        self.y_val = split.y_val
 
         logger.info(f"Train: {len(self.X_train)}, Test: {len(self.X_test)}")
-
-        # Split train into train/validation
-        self.X_tr, self.X_val, self.y_tr, self.y_val = train_test_split(
-            self.X_train, self.y_train,
-            test_size=MODEL_CONFIG.VALIDATION_SIZE,
-            random_state=MODEL_CONFIG.RANDOM_STATE,
-            shuffle=False
-        )
 
     def train(self, use_mlflow: bool = False) -> ClassifierMixin:
         """
@@ -208,7 +220,7 @@ class ModelTrainer(BaseTrainer):
 
     def save_model(self, path: str = None) -> None:
         """
-        Saves model to file.
+        Saves model to file using the configured repository.
 
         Args:
             path: File path (default from config)
@@ -223,15 +235,8 @@ class ModelTrainer(BaseTrainer):
                 "Call train() method first."
             )
 
-        path = Path(path) if path else MODEL_CONFIG.model_file
-
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            joblib.dump(self.model, path, compress=3)
-        except Exception as e:
-            raise OSError(f"Cannot save model to {path}: {e}") from e
-
-        logger.info(f"Model saved to: {path}")
+        self._repository.save(self.model, path)
+        logger.info(f"Model saved to: {path or self._repository.default_path}")
 
     @staticmethod
     def load_model(path: str = None) -> ClassifierMixin:
@@ -248,15 +253,6 @@ class ModelTrainer(BaseTrainer):
             ModelNotFoundError: When model file doesn't exist
             InvalidDataError: When model cannot be loaded
         """
-        path = Path(path) if path else MODEL_CONFIG.model_file
+        repository = JoblibModelRepository()
+        return repository.load(path)
 
-        if not path.exists():
-            raise ModelNotFoundError(
-                f"Model file doesn't exist: {path}. "
-                "Run train_model.py first"
-            )
-
-        try:
-            return joblib.load(path)
-        except Exception as e:
-            raise InvalidDataError(f"Error loading model {path}: {e}") from e
