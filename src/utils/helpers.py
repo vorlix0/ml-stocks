@@ -103,53 +103,35 @@ def validate_ohlcv_data(df: pd.DataFrame) -> None:
     """
     Validates OHLCV data.
 
+    Delegates to the canonical Pydantic-based validator in ``src.validators``
+    to avoid duplicating validation logic.
+
     Args:
         df: DataFrame to validate
 
     Raises:
+        EmptyDataError: When data is empty
         InvalidDataError: When data is invalid
     """
-    required_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
-    missing_cols = set(required_columns) - set(df.columns)
+    from src.validators import validate_ohlcv_dataframe
 
-    if missing_cols:
-        raise InvalidDataError(
-            f"Missing OHLCV columns: {missing_cols}. "
-            f"Required: {required_columns}"
-        )
-
-    # Check if there's data
-    if len(df) == 0:
-        raise EmptyDataError("OHLCV DataFrame is empty")
-
-    # Check for too many NaN values
-    nan_ratio = df[required_columns].isna().sum().sum() / (len(df) * len(required_columns))
-    if nan_ratio > 0.5:
-        raise InvalidDataError(
-            f"Too many missing values in OHLCV data: {nan_ratio:.1%}"
-        )
+    validate_ohlcv_dataframe(df)
 
 
 def validate_features_data(df: pd.DataFrame) -> None:
     """
     Validates features data.
 
+    Delegates to the canonical Pydantic-based validator in ``src.validators``
+    to avoid duplicating validation logic.
+
     Args:
         df: DataFrame to validate
 
     Raises:
+        EmptyDataError: When data is empty
         InvalidDataError: When data is invalid
     """
-    if 'Target' not in df.columns:
-        raise InvalidDataError("Missing 'Target' column in features data")
+    from src.validators import validate_features_dataframe
 
-    if len(df) == 0:
-        raise EmptyDataError("Features DataFrame is empty")
-
-    # Check target distribution
-    target_values = df['Target'].unique()
-    if len(target_values) < 2:
-        raise InvalidDataError(
-            f"Target has only one value: {target_values}. "
-            "At least 2 classes required."
-        )
+    validate_features_dataframe(df)

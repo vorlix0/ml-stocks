@@ -182,5 +182,5 @@ class TestValidateFeaturesData:
             'Target': [0] * 10,
         })
 
-        with pytest.raises(InvalidDataError, match="one value"):
+        with pytest.raises(InvalidDataError, match="one.*value"):
             validate_features_data(df)
