@@ -70,6 +70,7 @@ def process() -> None:
 
         feature_engineer = FeatureEngineer(data)
         data_features = feature_engineer.create_all_features()
+        output_file.parent.mkdir(parents=True, exist_ok=True)
         data_features.to_csv(output_file)
 
         typer.echo(f"✅ Features saved to: {output_file}  (shape: {data_features.shape})")
