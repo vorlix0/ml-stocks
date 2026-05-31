@@ -68,6 +68,7 @@ class ChronologicalSplitter(DataSplitter):
     ) -> None:
         self.split_date = split_date or MODEL_CONFIG.SPLIT_DATE
         self.validation_size = validation_size or MODEL_CONFIG.VALIDATION_SIZE
+        # Use explicit None check: 0 is a valid random_state
         self.random_state = random_state if random_state is not None else MODEL_CONFIG.RANDOM_STATE
 
     def split(self, x: pd.DataFrame, y: pd.Series) -> DataSplit:

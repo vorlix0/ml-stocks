@@ -17,32 +17,33 @@ from src.model.model_repository import JoblibModelRepository, ModelRepository
 from src.model.trainer import ModelTrainer
 
 
+@pytest.fixture
+def large_training_data() -> pd.DataFrame:
+    """Creates data spanning the split date for integration tests."""
+    from src.data.features import FeatureEngineer
+
+    np.random.seed(42)
+    dates = pd.date_range(start="2021-01-01", periods=1000, freq="D")
+    base_price = 100
+    returns = np.random.randn(1000) * 0.02
+    close = base_price * np.cumprod(1 + returns)
+
+    df = pd.DataFrame(
+        {
+            "Open": close * (1 + np.random.randn(1000) * 0.005),
+            "High": close * (1 + np.abs(np.random.randn(1000) * 0.01)),
+            "Low": close * (1 - np.abs(np.random.randn(1000) * 0.01)),
+            "Close": close,
+            "Volume": np.random.randint(1_000_000, 10_000_000, size=1000),
+        },
+        index=dates,
+    )
+    engineer = FeatureEngineer(df)
+    return engineer.create_all_features()
+
+
 class TestTrainerWithCustomSplitter:
     """Tests that ModelTrainer works with injected DataSplitter."""
-
-    @pytest.fixture
-    def large_training_data(self) -> pd.DataFrame:
-        """Creates data spanning the split date."""
-        from src.data.features import FeatureEngineer
-
-        np.random.seed(42)
-        dates = pd.date_range(start="2021-01-01", periods=1000, freq="D")
-        base_price = 100
-        returns = np.random.randn(1000) * 0.02
-        close = base_price * np.cumprod(1 + returns)
-
-        df = pd.DataFrame(
-            {
-                "Open": close * (1 + np.random.randn(1000) * 0.005),
-                "High": close * (1 + np.abs(np.random.randn(1000) * 0.01)),
-                "Low": close * (1 - np.abs(np.random.randn(1000) * 0.01)),
-                "Close": close,
-                "Volume": np.random.randint(1_000_000, 10_000_000, size=1000),
-            },
-            index=dates,
-        )
-        engineer = FeatureEngineer(df)
-        return engineer.create_all_features()
 
     def test_default_splitter_is_chronological(self, large_training_data):
         """Without explicit splitter, trainer should use ChronologicalSplitter."""
@@ -82,30 +83,6 @@ class TestTrainerWithCustomSplitter:
 
 class TestTrainerWithCustomRepository:
     """Tests that ModelTrainer works with injected ModelRepository."""
-
-    @pytest.fixture
-    def large_training_data(self) -> pd.DataFrame:
-        """Creates data spanning the split date."""
-        from src.data.features import FeatureEngineer
-
-        np.random.seed(42)
-        dates = pd.date_range(start="2021-01-01", periods=1000, freq="D")
-        base_price = 100
-        returns = np.random.randn(1000) * 0.02
-        close = base_price * np.cumprod(1 + returns)
-
-        df = pd.DataFrame(
-            {
-                "Open": close * (1 + np.random.randn(1000) * 0.005),
-                "High": close * (1 + np.abs(np.random.randn(1000) * 0.01)),
-                "Low": close * (1 - np.abs(np.random.randn(1000) * 0.01)),
-                "Close": close,
-                "Volume": np.random.randint(1_000_000, 10_000_000, size=1000),
-            },
-            index=dates,
-        )
-        engineer = FeatureEngineer(df)
-        return engineer.create_all_features()
 
     def test_default_repository_is_joblib(self, large_training_data):
         """Without explicit repo, trainer should use JoblibModelRepository."""
@@ -163,30 +140,6 @@ class TestTrainerWithCustomRepository:
 
 class TestBackwardCompatibility:
     """Ensure the refactored trainer is fully backward-compatible."""
-
-    @pytest.fixture
-    def large_training_data(self) -> pd.DataFrame:
-        """Creates data spanning the split date."""
-        from src.data.features import FeatureEngineer
-
-        np.random.seed(42)
-        dates = pd.date_range(start="2021-01-01", periods=1000, freq="D")
-        base_price = 100
-        returns = np.random.randn(1000) * 0.02
-        close = base_price * np.cumprod(1 + returns)
-
-        df = pd.DataFrame(
-            {
-                "Open": close * (1 + np.random.randn(1000) * 0.005),
-                "High": close * (1 + np.abs(np.random.randn(1000) * 0.01)),
-                "Low": close * (1 - np.abs(np.random.randn(1000) * 0.01)),
-                "Close": close,
-                "Volume": np.random.randint(1_000_000, 10_000_000, size=1000),
-            },
-            index=dates,
-        )
-        engineer = FeatureEngineer(df)
-        return engineer.create_all_features()
 
     def test_trainer_without_args_works_as_before(self, large_training_data):
         """ModelTrainer(df) without extra args should work identically."""
