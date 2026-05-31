@@ -120,7 +120,7 @@ def run_backtest() -> dict:
 
 def build_html(data: dict) -> str:
     """Build and return the full HTML report string."""
-    now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     sha = _git_sha()
 
     strategy_names = list(data["results"].keys())
