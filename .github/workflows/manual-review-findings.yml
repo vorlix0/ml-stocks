@@ -36,15 +36,21 @@ jobs:
 
       - name: Run Ruff
         run: |
-          ruff check . --output-format json > ruff-report.json || true
+          set +e
+          ruff check . --output-format json > ruff-report.json
+          echo $? > ruff-exit-code.txt
 
       - name: Run mypy
         run: |
-          mypy src --show-error-codes --no-error-summary > mypy-report.txt || true
+          set +e
+          mypy src --show-error-codes --no-error-summary > mypy-report.txt
+          echo $? > mypy-exit-code.txt
 
       - name: Run tests
         run: |
-          pytest tests/ --junitxml=pytest-report.xml || true
+          set +e
+          pytest tests/ --junitxml=pytest-report.xml
+          echo $? > pytest-exit-code.txt
 
       - name: Aggregate findings
         run: |
@@ -67,6 +73,28 @@ jobs:
                   "body": body,
                   "labels": labels,
               })
+
+          def read_exit_code(path: str) -> int | None:
+              p = Path(path)
+              if not p.exists():
+                  return None
+              try:
+                  return int(p.read_text().strip())
+              except ValueError:
+                  return None
+
+          ruff_exit = read_exit_code("ruff-exit-code.txt")
+          if ruff_exit not in (0, 1):
+              add_finding(
+                  "[auto-review][ruff] Unexpected command failure",
+                  (
+                      "Ruff command exited with an unexpected status code.\n\n"
+                      f"- Exit code: `{ruff_exit}`\n"
+                      "- Command: `ruff check . --output-format json`\n\n"
+                      "Probability assessment: **high** (tool execution failure in CI)."
+                  ),
+                  ["bug", "probability:high", "source:ci-review"],
+              )
 
           # Ruff findings
           ruff_path = Path("ruff-report.json")
@@ -95,6 +123,18 @@ jobs:
 
           # mypy findings
           mypy_path = Path("mypy-report.txt")
+          mypy_exit = read_exit_code("mypy-exit-code.txt")
+          if mypy_exit not in (0, 1):
+              add_finding(
+                  "[auto-review][mypy] Unexpected command failure",
+                  (
+                      "mypy command exited with an unexpected status code.\n\n"
+                      f"- Exit code: `{mypy_exit}`\n"
+                      "- Command: `mypy src --show-error-codes --no-error-summary`\n\n"
+                      "Probability assessment: **high** (tool execution failure in CI)."
+                  ),
+                  ["bug", "probability:high", "source:ci-review"],
+              )
           if mypy_path.exists() and mypy_path.stat().st_size > 0:
               pattern = re.compile(
                   r"^(?P<file>.*?):(?P<line>\d+):(?:(?P<col>\d+):)?\s*error:\s*(?P<msg>.*?)(?:\s*\[(?P<code>[^\]]+)\])?$"
@@ -123,6 +163,18 @@ jobs:
 
           # pytest findings
           pytest_path = Path("pytest-report.xml")
+          pytest_exit = read_exit_code("pytest-exit-code.txt")
+          if pytest_exit not in (0, 1, 5):
+              add_finding(
+                  "[auto-review][pytest] Unexpected command failure",
+                  (
+                      "pytest command exited with an unexpected status code.\n\n"
+                      f"- Exit code: `{pytest_exit}`\n"
+                      "- Command: `pytest tests/ --junitxml=pytest-report.xml`\n\n"
+                      "Probability assessment: **high** (tool execution failure in CI)."
+                  ),
+                  ["bug", "probability:high", "source:ci-review"],
+              )
           if pytest_path.exists() and pytest_path.stat().st_size > 0:
               try:
                   root = ET.parse(pytest_path).getroot()
@@ -139,7 +191,10 @@ jobs:
                       name = testcase.attrib.get("name", "unknown")
                       title = f"[auto-review][pytest] Failure in {classname}.{name}"
                       details = (outcome.text or "No traceback provided").strip()
+                      was_truncated = len(details) > MAX_TRACEBACK_LENGTH
                       details = details[:MAX_TRACEBACK_LENGTH]
+                      if was_truncated:
+                          details += "\n...[truncated]"
                       body = (
                           "Automated pytest failure from manual review workflow.\n\n"
                           f"- Test: `{classname}.{name}`\n\n"
