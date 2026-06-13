@@ -203,12 +203,12 @@ jobs:
             const findings = allFindings.slice(0, maxFindings);
 
             core.summary.addHeading('Manual review findings');
-            core.summary.addRaw(`Total findings collected: ${allFindings.length}\\n`);
-            core.summary.addRaw(`Findings processed this run: ${findings.length}\\n`);
-            core.summary.addRaw(`Dry run: ${dryRun}\\n\\n`);
+            core.summary.addRaw(`Total findings collected: ${allFindings.length}\n`);
+            core.summary.addRaw(`Findings processed this run: ${findings.length}\n`);
+            core.summary.addRaw(`Dry run: ${dryRun}\n\n`);
 
             if (findings.length === 0) {
-              core.summary.addRaw('No findings to process.\\n');
+              core.summary.addRaw('No findings to process.\n');
               await core.summary.write();
               return;
             }
@@ -227,12 +227,12 @@ jobs:
 
               const existing = openByTitle.get(finding.title);
               if (existing) {
-                core.summary.addRaw(`Open issue already exists: #${existing.number}\\n`);
+                core.summary.addRaw(`Open issue already exists: #${existing.number}\n`);
                 continue;
               }
 
               if (dryRun) {
-                core.summary.addRaw('Dry run: issue not created.\\n');
+                core.summary.addRaw('Dry run: issue not created.\n');
                 continue;
               }
 
@@ -244,7 +244,7 @@ jobs:
                 labels: finding.labels,
               });
 
-              core.summary.addRaw(`Created issue: #${created.data.number}\\n`);
+              core.summary.addRaw(`Created issue: #${created.data.number}\n`);
             }
 
             await core.summary.write();
