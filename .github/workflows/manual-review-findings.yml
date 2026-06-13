@@ -60,7 +60,8 @@ jobs:
           import xml.etree.ElementTree as ET
           from pathlib import Path
 
-          MAX_TRACEBACK_LENGTH = 4000  # Keep issue bodies readable and safely sized.
+          # Keep issue bodies readable and comfortably below GitHub issue size limits.
+          MAX_TRACEBACK_LENGTH = 4000
           findings = []
           seen_titles = set()
 
@@ -84,6 +85,7 @@ jobs:
                   return None
 
           ruff_exit = read_exit_code("ruff-exit-code.txt")
+          # Ruff: 0 = no violations, 1 = violations found.
           if ruff_exit not in (0, 1):
               add_finding(
                   "[auto-review][ruff] Unexpected command failure",
@@ -124,6 +126,7 @@ jobs:
           # mypy findings
           mypy_path = Path("mypy-report.txt")
           mypy_exit = read_exit_code("mypy-exit-code.txt")
+          # mypy: 0 = no type errors, 1 = type errors found.
           if mypy_exit not in (0, 1):
               add_finding(
                   "[auto-review][mypy] Unexpected command failure",
@@ -164,6 +167,7 @@ jobs:
           # pytest findings
           pytest_path = Path("pytest-report.xml")
           pytest_exit = read_exit_code("pytest-exit-code.txt")
+          # pytest: 0 = all passed, 1 = test failures, 5 = no tests collected.
           if pytest_exit not in (0, 1, 5):
               add_finding(
                   "[auto-review][pytest] Unexpected command failure",
