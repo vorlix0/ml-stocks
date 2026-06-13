@@ -43,7 +43,7 @@ jobs:
       - name: Run mypy
         run: |
           set +e
-          mypy src --show-error-codes --no-error-summary > mypy-report.txt
+          mypy src --show-error-codes --no-error-summary > mypy-report.txt 2>&1
           echo $? > mypy-exit-code.txt
 
       - name: Run tests
@@ -254,7 +254,11 @@ jobs:
             }
 
             const allFindings = JSON.parse(fs.readFileSync('findings.json', 'utf8'));
-            const maxFindings = Number(process.env.MAX_FINDINGS || '20');
+            const parsedMaxFindings = parseInt(process.env.MAX_FINDINGS || '20', 10);
+            if (Number.isNaN(parsedMaxFindings)) {
+              throw new Error('MAX_FINDINGS must be a valid integer');
+            }
+            const maxFindings = parsedMaxFindings;
             const dryRun = String(process.env.DRY_RUN).toLowerCase() === 'true';
             const findings = allFindings.slice(0, maxFindings);
 
