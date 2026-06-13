@@ -54,6 +54,7 @@ jobs:
           import xml.etree.ElementTree as ET
           from pathlib import Path
 
+          MAX_TRACEBACK_LENGTH = 4000  # Keep issue bodies readable and safely sized.
           findings = []
           seen_titles = set()
 
@@ -73,6 +74,7 @@ jobs:
               try:
                   ruff_results = json.loads(ruff_path.read_text())
               except json.JSONDecodeError:
+                  print("Warning: could not parse ruff-report.json; skipping Ruff findings")
                   ruff_results = []
               for item in ruff_results:
                   code = item.get("code", "unknown")
@@ -137,8 +139,7 @@ jobs:
                       name = testcase.attrib.get("name", "unknown")
                       title = f"[auto-review][pytest] Failure in {classname}.{name}"
                       details = (outcome.text or "No traceback provided").strip()
-                      # Keep traceback short enough for issue readability/API payload size.
-                      details = details[:4000]
+                      details = details[:MAX_TRACEBACK_LENGTH]
                       body = (
                           "Automated pytest failure from manual review workflow.\n\n"
                           f"- Test: `{classname}.{name}`\n\n"
