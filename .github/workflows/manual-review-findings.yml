@@ -137,6 +137,7 @@ jobs:
                       name = testcase.attrib.get("name", "unknown")
                       title = f"[auto-review][pytest] Failure in {classname}.{name}"
                       details = (outcome.text or "No traceback provided").strip()
+                      # Keep traceback short enough for issue readability/API payload size.
                       details = details[:4000]
                       body = (
                           "Automated pytest failure from manual review workflow.\n\n"
@@ -199,7 +200,7 @@ jobs:
             const allFindings = JSON.parse(fs.readFileSync('findings.json', 'utf8'));
             const maxFindings = Number(process.env.MAX_FINDINGS || '20');
             const dryRun = String(process.env.DRY_RUN).toLowerCase() === 'true';
-            const findings = allFindings.slice(0, Math.max(0, maxFindings));
+            const findings = allFindings.slice(0, maxFindings);
 
             core.summary.addHeading('Manual review findings');
             core.summary.addRaw(`Total findings collected: ${allFindings.length}\\n`);
