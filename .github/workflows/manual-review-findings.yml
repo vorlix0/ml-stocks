@@ -1,0 +1,314 @@
+name: Manual Code Review Findings
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_findings:
+        description: Maximum number of findings to process in one run
+        required: false
+        default: '20'
+      dry_run:
+        description: If true, only print findings summary without creating issues
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  review-and-report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run Ruff
+        run: |
+          set +e
+          ruff check . --output-format json > ruff-report.json
+          echo $? > ruff-exit-code.txt
+
+      - name: Run mypy
+        run: |
+          set +e
+          mypy src --show-error-codes --no-error-summary > mypy-report.txt 2>&1
+          echo $? > mypy-exit-code.txt
+
+      - name: Run tests
+        run: |
+          set +e
+          pytest tests/ --junitxml=pytest-report.xml
+          echo $? > pytest-exit-code.txt
+
+      - name: Aggregate findings
+        run: |
+          python - <<'PY'
+          import json
+          import re
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          # Keep issue bodies readable and comfortably below GitHub issue size limits.
+          MAX_TRACEBACK_LENGTH = 4000
+          findings = []
+          seen_titles = set()
+
+          def add_finding(title: str, body: str, labels: list[str]) -> None:
+              if title in seen_titles:
+                  return
+              seen_titles.add(title)
+              findings.append({
+                  "title": title,
+                  "body": body,
+                  "labels": labels,
+              })
+
+          def read_exit_code(path: str) -> int | None:
+              p = Path(path)
+              if not p.exists():
+                  return None
+              try:
+                  return int(p.read_text().strip())
+              except ValueError:
+                  return None
+
+          ruff_exit = read_exit_code("ruff-exit-code.txt")
+          # Ruff: 0 = no violations, 1 = violations found.
+          if ruff_exit not in (0, 1):
+              add_finding(
+                  "[auto-review][ruff] Unexpected command failure",
+                  (
+                      "Ruff command exited with an unexpected status code.\n\n"
+                      f"- Exit code: `{ruff_exit}`\n"
+                      "- Command: `ruff check . --output-format json`\n\n"
+                      "Probability assessment: **high** (tool execution failure in CI)."
+                  ),
+                  ["bug", "probability:high", "source:ci-review"],
+              )
+
+          # Ruff findings
+          ruff_path = Path("ruff-report.json")
+          if ruff_path.exists() and ruff_path.stat().st_size > 0:
+              try:
+                  ruff_results = json.loads(ruff_path.read_text())
+              except json.JSONDecodeError:
+                  print("Warning: could not parse ruff-report.json; skipping Ruff findings")
+                  ruff_results = []
+              for item in ruff_results:
+                  code = item.get("code", "unknown")
+                  message = item.get("message", "Ruff rule violation")
+                  filename = item.get("filename", "unknown")
+                  location = item.get("location", {})
+                  row = location.get("row", "?")
+                  title = f"[auto-review][ruff] {code} at {filename}:{row}"
+                  body = (
+                      "Automated Ruff finding from manual review workflow.\n\n"
+                      f"- File: `{filename}`\n"
+                      f"- Line: `{row}`\n"
+                      f"- Rule: `{code}`\n"
+                      f"- Message: {message}\n\n"
+                      "Probability assessment: **medium** (static analysis finding)."
+                  )
+                  add_finding(title, body, ["bug", "probability:medium", "source:ci-review"])
+
+          # mypy findings
+          mypy_path = Path("mypy-report.txt")
+          mypy_exit = read_exit_code("mypy-exit-code.txt")
+          # mypy: 0 = no type errors, 1 = type errors found.
+          if mypy_exit not in (0, 1):
+              add_finding(
+                  "[auto-review][mypy] Unexpected command failure",
+                  (
+                      "mypy command exited with an unexpected status code.\n\n"
+                      f"- Exit code: `{mypy_exit}`\n"
+                      "- Command: `mypy src --show-error-codes --no-error-summary`\n\n"
+                      "Probability assessment: **high** (tool execution failure in CI)."
+                  ),
+                  ["bug", "probability:high", "source:ci-review"],
+              )
+          if mypy_path.exists() and mypy_path.stat().st_size > 0:
+              pattern = re.compile(
+                  r"^(?P<file>.*?):(?P<line>\d+):(?:(?P<col>\d+):)?\s*error:\s*(?P<msg>.*?)(?:\s*\[(?P<code>[^\]]+)\])?$"
+              )
+              for raw_line in mypy_path.read_text().splitlines():
+                  line = raw_line.strip()
+                  if not line:
+                      continue
+                  match = pattern.match(line)
+                  if not match:
+                      continue
+                  file_name = match.group("file")
+                  line_no = match.group("line")
+                  code = match.group("code") or "mypy-error"
+                  msg = match.group("msg")
+                  title = f"[auto-review][mypy] {code} at {file_name}:{line_no}"
+                  body = (
+                      "Automated mypy finding from manual review workflow.\n\n"
+                      f"- File: `{file_name}`\n"
+                      f"- Line: `{line_no}`\n"
+                      f"- Code: `{code}`\n"
+                      f"- Message: {msg}\n\n"
+                      "Probability assessment: **medium** (type-checking finding)."
+                  )
+                  add_finding(title, body, ["bug", "probability:medium", "source:ci-review"])
+
+          # pytest findings
+          pytest_path = Path("pytest-report.xml")
+          pytest_exit = read_exit_code("pytest-exit-code.txt")
+          # pytest: 0 = all passed, 1 = test failures, 5 = no tests collected.
+          if pytest_exit not in (0, 1, 5):
+              add_finding(
+                  "[auto-review][pytest] Unexpected command failure",
+                  (
+                      "pytest command exited with an unexpected status code.\n\n"
+                      f"- Exit code: `{pytest_exit}`\n"
+                      "- Command: `pytest tests/ --junitxml=pytest-report.xml`\n\n"
+                      "Probability assessment: **high** (tool execution failure in CI)."
+                  ),
+                  ["bug", "probability:high", "source:ci-review"],
+              )
+          if pytest_path.exists() and pytest_path.stat().st_size > 0:
+              try:
+                  root = ET.parse(pytest_path).getroot()
+              except ET.ParseError:
+                  root = None
+              if root is not None:
+                  for testcase in root.iter("testcase"):
+                      failure = testcase.find("failure")
+                      error = testcase.find("error")
+                      if failure is None and error is None:
+                          continue
+                      outcome = failure if failure is not None else error
+                      classname = testcase.attrib.get("classname", "unknown")
+                      name = testcase.attrib.get("name", "unknown")
+                      title = f"[auto-review][pytest] Failure in {classname}.{name}"
+                      details = (outcome.text or "No traceback provided").strip()
+                      was_truncated = len(details) > MAX_TRACEBACK_LENGTH
+                      details = details[:MAX_TRACEBACK_LENGTH]
+                      if was_truncated:
+                          details += "\n...[truncated]"
+                      body = (
+                          "Automated pytest failure from manual review workflow.\n\n"
+                          f"- Test: `{classname}.{name}`\n\n"
+                          "Traceback snippet:\n"
+                          "```\n"
+                          f"{details}\n"
+                          "```\n\n"
+                          "Probability assessment: **high** (reproducible test failure in CI)."
+                      )
+                      add_finding(title, body, ["bug", "probability:high", "source:ci-review"])
+
+          Path("findings.json").write_text(json.dumps(findings, indent=2))
+          print(f"Collected findings: {len(findings)}")
+          PY
+
+      - name: Create/update labels and issues
+        uses: actions/github-script@v7
+        env:
+          MAX_FINDINGS: ${{ inputs.max_findings }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        with:
+          script: |
+            const fs = require('fs');
+
+            const labelDefinitions = [
+              { name: 'probability:high', color: 'b60205', description: 'High probability bug finding' },
+              { name: 'probability:medium', color: 'fbca04', description: 'Medium probability bug finding' },
+              { name: 'probability:low', color: '0e8a16', description: 'Low probability bug finding' },
+              { name: 'source:ci-review', color: '1d76db', description: 'Created by manual CI review pipeline' },
+            ];
+
+            for (const label of labelDefinitions) {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label.name,
+                });
+              } catch (error) {
+                if (error.status === 404) {
+                  await github.rest.issues.createLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name: label.name,
+                    color: label.color,
+                    description: label.description,
+                  });
+                } else {
+                  throw error;
+                }
+              }
+            }
+
+            if (!fs.existsSync('findings.json')) {
+              core.notice('No findings.json found. Nothing to do.');
+              return;
+            }
+
+            const allFindings = JSON.parse(fs.readFileSync('findings.json', 'utf8'));
+            const parsedMaxFindings = parseInt(process.env.MAX_FINDINGS || '20', 10);
+            if (Number.isNaN(parsedMaxFindings)) {
+              throw new Error('MAX_FINDINGS must be a valid integer');
+            }
+            const maxFindings = parsedMaxFindings;
+            const dryRun = String(process.env.DRY_RUN).toLowerCase() === 'true';
+            const findings = allFindings.slice(0, maxFindings);
+
+            core.summary.addHeading('Manual review findings');
+            core.summary.addRaw(`Total findings collected: ${allFindings.length}\n`);
+            core.summary.addRaw(`Findings processed this run: ${findings.length}\n`);
+            core.summary.addRaw(`Dry run: ${dryRun}\n\n`);
+
+            if (findings.length === 0) {
+              core.summary.addRaw('No findings to process.\n');
+              await core.summary.write();
+              return;
+            }
+
+            const openIssues = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            });
+
+            const openByTitle = new Map(openIssues.map((i) => [i.title, i]));
+
+            for (const finding of findings) {
+              core.summary.addHeading(finding.title, 3);
+
+              const existing = openByTitle.get(finding.title);
+              if (existing) {
+                core.summary.addRaw(`Open issue already exists: #${existing.number}\n`);
+                continue;
+              }
+
+              if (dryRun) {
+                core.summary.addRaw('Dry run: issue not created.\n');
+                continue;
+              }
+
+              const created = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: finding.title,
+                body: finding.body,
+                labels: finding.labels,
+              });
+
+              core.summary.addRaw(`Created issue: #${created.data.number}\n`);
+            }
+
+            await core.summary.write();
