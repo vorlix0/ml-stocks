@@ -245,7 +245,7 @@ class ModelTrainer(BaseTrainer):
             )
 
         self._repository.save(self.model, path)
-        saved_to = path if path is not None else "repository default path"
+        saved_to = path if path is not None else str(MODEL_CONFIG.model_file)
         logger.info(f"Model saved to: {saved_to}")
 
     @staticmethod
