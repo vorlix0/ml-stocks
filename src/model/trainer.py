@@ -183,12 +183,25 @@ class ModelTrainer(BaseTrainer):
         with mlflow.start_run():
             mlflow.log_params(params)
 
-            assert self.model is not None
-            assert self.X_tr is not None and self.y_tr is not None
-            assert self.X_val is not None and self.y_val is not None
-            assert self.X_test is not None and self.y_test is not None
-            model = self.model
+            if self.model is None:
+                raise ModelNotTrainedError(
+                    "Model has not been trained yet! "
+                    "Call train() method first."
+                )
 
+            if (
+                self.X_tr is None
+                or self.y_tr is None
+                or self.X_val is None
+                or self.y_val is None
+                or self.X_test is None
+                or self.y_test is None
+            ):
+                raise RuntimeError(
+                    "Training/validation/test data not prepared; call prepare_data() before training with MLflow."
+                )
+
+            model = self.model
             model.fit(self.X_tr, self.y_tr)
 
             # Validation metrics
