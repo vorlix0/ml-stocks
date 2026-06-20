@@ -53,20 +53,20 @@ class ModelTrainer(BaseTrainer):
         """
         self._validate_input(df)
         self.df = df
-        self.model = None
+        self.model: ClassifierMixin | None = None
         self.feature_cols = self._get_feature_columns()
         self._splitter = splitter or ChronologicalSplitter()
         self._repository = repository or JoblibModelRepository()
 
         # Data splits – initialized here so attributes always exist
-        self.X_train = None
-        self.X_test = None
-        self.y_train = None
-        self.y_test = None
-        self.X_tr = None
-        self.X_val = None
-        self.y_tr = None
-        self.y_val = None
+        self.X_train: pd.DataFrame | None = None
+        self.X_test: pd.DataFrame | None = None
+        self.y_train: pd.Series | None = None
+        self.y_test: pd.Series | None = None
+        self.X_tr: pd.DataFrame | None = None
+        self.X_val: pd.DataFrame | None = None
+        self.y_tr: pd.Series | None = None
+        self.y_val: pd.Series | None = None
 
     def _validate_input(self, df: pd.DataFrame) -> None:
         """Validates input data."""
@@ -109,7 +109,7 @@ class ModelTrainer(BaseTrainer):
         self.y_tr = split.y_tr
         self.y_val = split.y_val
 
-        logger.info(f"Train: {len(self.X_train)}, Test: {len(self.X_test)}")
+        logger.info(f"Train: {len(split.X_train)}, Test: {len(split.X_test)}")
 
     def train(self, use_mlflow: bool = False) -> ClassifierMixin:
         """
@@ -139,7 +139,7 @@ class ModelTrainer(BaseTrainer):
             random_state=MODEL_CONFIG.RANDOM_STATE,
         )
 
-        self.model = create_model(
+        model = create_model(
             MODEL_CONFIG.MODEL_TYPE,
             n_estimators=MODEL_CONFIG.N_ESTIMATORS,
             max_depth=MODEL_CONFIG.MAX_DEPTH,
@@ -148,13 +148,16 @@ class ModelTrainer(BaseTrainer):
             random_state=MODEL_CONFIG.RANDOM_STATE,
             verbose=0,
         )
+        self.model = model
+
+        assert self.X_tr is not None and self.y_tr is not None
 
         if use_mlflow:
             self._train_with_mlflow()
         else:
-            self.model.fit(self.X_tr, self.y_tr)
+            model.fit(self.X_tr, self.y_tr)
 
-        return self.model
+        return model
 
     def _train_with_mlflow(self) -> None:
         """Fits the model and logs run artefacts to MLflow."""
@@ -180,19 +183,38 @@ class ModelTrainer(BaseTrainer):
         with mlflow.start_run():
             mlflow.log_params(params)
 
-            self.model.fit(self.X_tr, self.y_tr)
+            if self.model is None:
+                raise ModelNotTrainedError(
+                    "Model has not been trained yet! "
+                    "Call train() method first."
+                )
+
+            if (
+                self.X_tr is None
+                or self.y_tr is None
+                or self.X_val is None
+                or self.y_val is None
+                or self.X_test is None
+                or self.y_test is None
+            ):
+                raise RuntimeError(
+                    "Training/validation/test data not prepared; call prepare_data() before training with MLflow."
+                )
+
+            model = self.model
+            model.fit(self.X_tr, self.y_tr)
 
             # Validation metrics
-            val_proba = self.model.predict_proba(self.X_val)[:, 1]
+            val_proba = model.predict_proba(self.X_val)[:, 1]
             val_auc = roc_auc_score(self.y_val, val_proba)
             mlflow.log_metric("val_auc", val_auc)
 
             # Test metrics
-            test_proba = self.model.predict_proba(self.X_test)[:, 1]
+            test_proba = model.predict_proba(self.X_test)[:, 1]
             test_auc = roc_auc_score(self.y_test, test_proba)
             mlflow.log_metric("test_auc", test_auc)
 
-            mlflow.sklearn.log_model(self.model, artifact_path="model")
+            mlflow.sklearn.log_model(model, artifact_path="model")
             logger.info(
                 f"MLflow run finished – val_auc={val_auc:.4f}, test_auc={test_auc:.4f}"
             )
@@ -218,7 +240,7 @@ class ModelTrainer(BaseTrainer):
             'importance': self.model.feature_importances_
         }).sort_values('importance', ascending=False)
 
-    def save_model(self, path: str = None) -> None:
+    def save_model(self, path: str | None = None) -> None:
         """
         Saves model to file using the configured repository.
 
@@ -236,10 +258,11 @@ class ModelTrainer(BaseTrainer):
             )
 
         self._repository.save(self.model, path)
-        logger.info(f"Model saved to: {path or self._repository.default_path}")
+        saved_to = path if path is not None else str(MODEL_CONFIG.model_file)
+        logger.info(f"Model saved to: {saved_to}")
 
     @staticmethod
-    def load_model(path: str = None) -> ClassifierMixin:
+    def load_model(path: str | None = None) -> ClassifierMixin:
         """
         Loads model from file.
 

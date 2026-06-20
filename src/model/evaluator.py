@@ -5,7 +5,7 @@ Uses lazy-initialization pattern to ensure predictions are computed once
 and cached, eliminating repeated guard checks across methods.
 """
 import logging
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -73,7 +73,7 @@ class ModelEvaluator:
         """
         self._ensure_predictions()
 
-        return classification_report(self.y_test, self.y_pred)
+        return cast(str, classification_report(self.y_test, self.y_pred))
 
     def print_evaluation(self) -> None:
         """Prints full model evaluation."""
@@ -99,6 +99,6 @@ class ModelEvaluator:
             AUC on validation set
         """
         y_val_pred_proba = self.model.predict_proba(x_val)[:, 1]
-        val_auc = roc_auc_score(y_val, y_val_pred_proba)
+        val_auc = float(roc_auc_score(y_val, y_val_pred_proba))
         logger.info(f"Validation AUC: {val_auc:.3f}")
         return val_auc
