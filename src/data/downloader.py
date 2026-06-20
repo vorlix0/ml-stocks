@@ -20,7 +20,12 @@ _TICKER_PATTERN = re.compile(r'^[A-Z0-9.\-\^]{1,10}$')
 class DataDownloader:
     """Class for downloading financial data from yfinance."""
 
-    def __init__(self, ticker: str = None, start_date: str = None, end_date: str = None):
+    def __init__(
+        self,
+        ticker: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ):
         """
         Initializes the downloader.
 
@@ -90,7 +95,7 @@ class DataDownloader:
         logger.info(f"Downloaded {len(data)} records")
         return data
 
-    def download_and_save(self, output_path: str = None) -> pd.DataFrame:
+    def download_and_save(self, output_path: str | None = None) -> pd.DataFrame:
         """
         Downloads data and saves to CSV file.
 
@@ -107,15 +112,15 @@ class DataDownloader:
         """
         data = self.download()
 
-        output_path = output_path or DATA_CONFIG.data_file
+        destination = output_path or DATA_CONFIG.data_file
 
         try:
             # Ensure directory exists
-            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-            data.to_csv(output_path)
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            data.to_csv(destination)
         except Exception as e:
-            raise OSError(f"Cannot save data to {output_path}: {e}") from e
+            raise OSError(f"Cannot save data to {destination}: {e}") from e
 
-        logger.info(f"Data saved to: {output_path}")
+        logger.info(f"Data saved to: {destination}")
 
         return data
