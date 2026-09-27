@@ -95,6 +95,10 @@ Edit `config.py` to change:
 - ADX trend filter for signal generation
 - Risk metrics (Sharpe ratio, max drawdown)
 
+## Feature Store Scope
+
+A feature store such as Feast is intentionally not part of this project. This is a hobby project, not an effort to build a full production or cloud deployment or take on infrastructure costs. The existing local pipeline is sufficient for the project's needs; this is a scope decision, not a requirement imposed by Feast.
+
 ## 🧪 Development
 
 ```bash
