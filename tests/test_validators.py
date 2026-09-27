@@ -3,6 +3,7 @@ Tests for Pydantic validators (src/validators.py).
 """
 import pandas as pd
 import pytest
+from pydantic import ValidationError
 
 from src.exceptions import EmptyDataError, InvalidDataError
 from src.validators import (
@@ -24,19 +25,19 @@ class TestOHLCVRow:
         assert row.Close == 102.0
 
     def test_high_less_than_low_raises(self):
-        with pytest.raises(Exception, match="High"):
+        with pytest.raises(ValidationError, match="High"):
             OHLCVRow(Open=100.0, High=95.0, Low=98.0, Close=100.0, Volume=500_000)
 
     def test_negative_price_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             OHLCVRow(Open=-1.0, High=105.0, Low=98.0, Close=102.0, Volume=1_000_000)
 
     def test_zero_price_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             OHLCVRow(Open=0.0, High=105.0, Low=98.0, Close=102.0, Volume=1_000_000)
 
     def test_negative_volume_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             OHLCVRow(Open=100.0, High=105.0, Low=98.0, Close=102.0, Volume=-1)
 
     def test_zero_volume_allowed(self):
@@ -64,7 +65,7 @@ class TestFeaturesRow:
         assert row.Target == 0
 
     def test_invalid_target_raises(self):
-        with pytest.raises(Exception, match="Target"):
+        with pytest.raises(ValidationError, match="Target"):
             FeaturesRow(Open=100.0, High=105.0, Low=98.0, Close=102.0,
                         Volume=1_000_000, Target=2)
 
@@ -84,7 +85,7 @@ class TestModelConfigSchema:
         assert cfg.N_ESTIMATORS == 300
 
     def test_zero_estimators_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             ModelConfigSchema(
                 N_ESTIMATORS=0,
                 MAX_DEPTH=5,
@@ -95,7 +96,7 @@ class TestModelConfigSchema:
             )
 
     def test_learning_rate_ge_1_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             ModelConfigSchema(
                 N_ESTIMATORS=100,
                 MAX_DEPTH=5,
@@ -106,7 +107,7 @@ class TestModelConfigSchema:
             )
 
     def test_subsample_gt_1_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             ModelConfigSchema(
                 N_ESTIMATORS=100,
                 MAX_DEPTH=5,
@@ -125,7 +126,7 @@ class TestDataConfigSchema:
         assert cfg.TICKER == "AAPL"
 
     def test_end_before_start_raises(self):
-        with pytest.raises(Exception, match="END_DATE"):
+        with pytest.raises(ValidationError, match="END_DATE"):
             DataConfigSchema(
                 TICKER="AAPL",
                 START_DATE="2024-01-01",
@@ -133,7 +134,7 @@ class TestDataConfigSchema:
             )
 
     def test_same_dates_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             DataConfigSchema(
                 TICKER="AAPL",
                 START_DATE="2024-01-01",
