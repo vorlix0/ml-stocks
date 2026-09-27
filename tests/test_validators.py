@@ -3,6 +3,7 @@ Tests for Pydantic validators (src/validators.py).
 """
 import pandas as pd
 import pytest
+from pydantic import ValidationError
 
 from src.exceptions import EmptyDataError, InvalidDataError
 from src.validators import (
@@ -95,7 +96,7 @@ class TestModelConfigSchema:
             )
 
     def test_learning_rate_ge_1_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             ModelConfigSchema(
                 N_ESTIMATORS=100,
                 MAX_DEPTH=5,
@@ -106,7 +107,7 @@ class TestModelConfigSchema:
             )
 
     def test_subsample_gt_1_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             ModelConfigSchema(
                 N_ESTIMATORS=100,
                 MAX_DEPTH=5,
@@ -133,7 +134,7 @@ class TestDataConfigSchema:
             )
 
     def test_same_dates_raises(self):
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             DataConfigSchema(
                 TICKER="AAPL",
                 START_DATE="2024-01-01",
