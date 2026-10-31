@@ -17,8 +17,8 @@ class RiskMetrics:
     def __init__(
         self,
         returns: pd.Series,
-        cumulative_returns: pd.Series = None,
-        rf_rate: float = None
+        cumulative_returns: pd.Series | None = None,
+        rf_rate: float | None = None
     ):
         """
         Initializes risk metrics.
@@ -43,7 +43,7 @@ class RiskMetrics:
         if excess_returns.std() == 0:
             return 0.0
 
-        return (
+        return float(
             np.sqrt(BACKTEST_CONFIG.TRADING_DAYS_PER_YEAR) *
             (excess_returns.mean() / excess_returns.std())
         )
@@ -60,7 +60,7 @@ class RiskMetrics:
 
         running_max = self.cumulative_returns.cummax()
         drawdown = (self.cumulative_returns - running_max) / running_max
-        return drawdown.min()
+        return float(drawdown.min())
 
     def total_return(self) -> float:
         """
@@ -72,7 +72,7 @@ class RiskMetrics:
         if self.cumulative_returns is None:
             self.cumulative_returns = (1 + self.returns).cumprod()
 
-        return self.cumulative_returns.iloc[-1] - 1
+        return float(self.cumulative_returns.iloc[-1] - 1)
 
     def volatility(self) -> float:
         """
@@ -81,7 +81,9 @@ class RiskMetrics:
         Returns:
             Annualized volatility
         """
-        return self.returns.std() * np.sqrt(BACKTEST_CONFIG.TRADING_DAYS_PER_YEAR)
+        return float(
+            self.returns.std() * np.sqrt(BACKTEST_CONFIG.TRADING_DAYS_PER_YEAR)
+        )
 
     def get_all_metrics(self) -> dict[str, float]:
         """

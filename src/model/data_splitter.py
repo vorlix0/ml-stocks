@@ -9,9 +9,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 import pandas as pd
-from sklearn.model_selection import train_test_split
 
-from config import MODEL_CONFIG
+from config import FEATURE_CONFIG, MODEL_CONFIG
 
 
 @dataclass
@@ -72,19 +71,35 @@ class ChronologicalSplitter(DataSplitter):
         self.random_state = random_state if random_state is not None else MODEL_CONFIG.RANDOM_STATE
 
     def split(self, x: pd.DataFrame, y: pd.Series) -> DataSplit:
-        """Split chronologically by split_date, then sub-split train into train/val."""
+        """Split chronologically, purging overlapping target horizons at boundaries."""
         x_train = x[x.index < self.split_date]
         x_test = x[x.index >= self.split_date]
         y_train = y[y.index < self.split_date]
         y_test = y[y.index >= self.split_date]
 
-        x_tr, x_val, y_tr, y_val = train_test_split(
-            x_train,
-            y_train,
-            test_size=self.validation_size,
-            random_state=self.random_state,
-            shuffle=False,
-        )
+        gap = FEATURE_CONFIG.TARGET_HORIZON_DAYS
+        if len(x_train) <= 2 * gap + 1:
+            raise ValueError(
+                f"Not enough pre-split samples ({len(x_train)}) for "
+                f"a {gap}-sample gap and train/validation partitions."
+            )
+
+        # Exclude pre-test rows whose forward labels would cross split_date.
+        x_train = x_train.iloc[:-gap]
+        y_train = y_train.loc[x_train.index]
+
+        validation_start = int(len(x_train) * (1 - self.validation_size))
+        train_end = validation_start - gap
+        if train_end <= 0 or validation_start >= len(x_train):
+            raise ValueError(
+                "Not enough samples for train/validation partitions after "
+                f"applying the {gap}-sample gap."
+            )
+
+        x_tr = x_train.iloc[:train_end]
+        y_tr = y_train.loc[x_tr.index]
+        x_val = x_train.iloc[validation_start:]
+        y_val = y_train.loc[x_val.index]
 
         return DataSplit(
             X_train=x_train,

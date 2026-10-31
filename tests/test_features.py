@@ -1,7 +1,6 @@
 """
 Tests for FeatureEngineer class.
 """
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -11,6 +10,15 @@ from src.exceptions import EmptyDataError, InvalidDataError
 
 class TestFeatureEngineer:
     """Tests for FeatureEngineer class."""
+
+    @pytest.fixture
+    def longer_ohlcv_data(self, sample_ohlcv_data):
+        """Extends the sample beyond the longest indicator and target horizon."""
+        data = pd.concat([sample_ohlcv_data, sample_ohlcv_data], ignore_index=True)
+        data.index = pd.date_range(
+            start=sample_ohlcv_data.index[0], periods=len(data), freq="D"
+        )
+        return data
 
     def test_init_with_valid_data(self, sample_ohlcv_data):
         """Should initialize with valid OHLCV data."""
@@ -46,27 +54,45 @@ class TestFeatureEngineer:
         assert len(result.columns) > initial_cols
         assert len(result.columns) > 50  # Should have many features
 
-    def test_create_all_features_has_target(self, sample_ohlcv_data):
+    def test_create_all_features_has_target(self, longer_ohlcv_data):
         """Result should include Target column."""
-        engineer = FeatureEngineer(sample_ohlcv_data)
+        engineer = FeatureEngineer(longer_ohlcv_data)
         result = engineer.create_all_features()
 
         assert 'Target' in result.columns
-        assert result['Target'].dtype in [np.int64, np.int32, int]
+        assert result['Target'].notna().any()
 
-    def test_create_all_features_no_nan(self, sample_ohlcv_data):
-        """Result should have no NaN values."""
-        engineer = FeatureEngineer(sample_ohlcv_data)
+    def test_create_all_features_keeps_unknown_targets(self, longer_ohlcv_data):
+        """Features are complete while the final target horizon remains unknown."""
+        from config import FEATURE_CONFIG
+
+        engineer = FeatureEngineer(longer_ohlcv_data)
         result = engineer.create_all_features()
 
-        assert result.isna().sum().sum() == 0
+        assert result.drop(columns=['Target']).isna().sum().sum() == 0
+        assert result['Target'].isna().sum() == FEATURE_CONFIG.TARGET_HORIZON_DAYS
 
-    def test_target_is_binary(self, sample_ohlcv_data):
-        """Target should be binary (0 or 1)."""
-        engineer = FeatureEngineer(sample_ohlcv_data)
+    def test_target_is_binary_and_matches_future_return(self, longer_ohlcv_data):
+        """Known targets reflect the configured forward return threshold."""
+        from config import FEATURE_CONFIG
+
+        engineer = FeatureEngineer(longer_ohlcv_data)
         result = engineer.create_all_features()
 
-        assert set(result['Target'].unique()).issubset({0, 1})
+        future_return = (
+            longer_ohlcv_data['Close'].shift(-FEATURE_CONFIG.TARGET_HORIZON_DAYS)
+            / longer_ohlcv_data['Close']
+            - 1
+        )
+        expected = (
+            (future_return > FEATURE_CONFIG.TARGET_THRESHOLD)
+            .where(future_return.notna())
+            .astype(float)
+        )
+        pd.testing.assert_series_equal(
+            result['Target'], expected.loc[result.index], check_names=False
+        )
+        assert set(result['Target'].dropna().unique()).issubset({0, 1})
 
     def test_returns_column_exists(self, sample_ohlcv_data):
         """Returns column should be created."""

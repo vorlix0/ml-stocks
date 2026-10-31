@@ -30,7 +30,6 @@ from src.backtest import RiskMetrics, TradingSimulator, TradingStrategy  # noqa:
 from src.model import ModelTrainer  # noqa: E402
 from src.utils import load_csv_safe, validate_features_data  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

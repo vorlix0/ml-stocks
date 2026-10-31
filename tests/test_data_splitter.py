@@ -88,6 +88,8 @@ class TestChronologicalSplitter:
 
     def test_validation_is_subset_of_train(self, time_series_data):
         """Validation data must come from the training period."""
+        from config import FEATURE_CONFIG
+
         x, y = time_series_data
         splitter = ChronologicalSplitter(split_date="2023-01-01")
 
@@ -97,8 +99,9 @@ class TestChronologicalSplitter:
         tr_idx = set(result.X_tr.index)
         val_idx = set(result.X_val.index)
 
-        assert tr_idx | val_idx == all_train_idx
+        assert tr_idx | val_idx < all_train_idx
         assert tr_idx.isdisjoint(val_idx)
+        assert len(all_train_idx - (tr_idx | val_idx)) == FEATURE_CONFIG.TARGET_HORIZON_DAYS
 
     def test_validation_size_respected(self, time_series_data):
         """Validation set size should approximate the requested fraction."""
@@ -110,6 +113,22 @@ class TestChronologicalSplitter:
         total_train = len(result.X_tr) + len(result.X_val)
         actual_ratio = len(result.X_val) / total_train
         assert abs(actual_ratio - 0.2) < 0.05
+
+    def test_purges_horizon_before_test_and_validation(self, time_series_data):
+        """Training labels cannot extend into validation or test periods."""
+        from config import FEATURE_CONFIG
+
+        x, y = time_series_data
+        split_date = pd.Timestamp("2023-01-01")
+        splitter = ChronologicalSplitter(split_date=str(split_date.date()))
+        result = splitter.split(x, y)
+        horizon = FEATURE_CONFIG.TARGET_HORIZON_DAYS
+
+        unpurged_train = x[x.index < split_date]
+        assert result.X_train.index[-1] == unpurged_train.index[-horizon - 1]
+        train_position = x.index.get_loc(result.X_tr.index[-1])
+        validation_position = x.index.get_loc(result.X_val.index[0])
+        assert validation_position - train_position == horizon + 1
 
     def test_custom_split_date(self, time_series_data):
         """Splitter should respect a custom split_date."""
