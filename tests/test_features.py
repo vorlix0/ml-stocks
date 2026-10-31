@@ -1,6 +1,7 @@
 """
 Tests for FeatureEngineer class.
 """
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -188,3 +189,32 @@ class TestFeatureEngineer:
 
         assert list(sample_ohlcv_data.columns) == original_cols
         assert len(sample_ohlcv_data) == original_len
+
+
+def test_market_features_and_relative_target():
+    from src.data.features import FeatureEngineer, build_market_frame
+
+    idx = pd.bdate_range("2018-01-01", periods=400)
+    rng = np.random.default_rng(1)
+
+    def ohlcv(drift):
+        close = pd.Series(100 * np.exp(np.cumsum(rng.normal(drift, 0.01, len(idx)))), index=idx)
+        return pd.DataFrame({
+            "Open": close, "High": close * 1.01, "Low": close * 0.99,
+            "Close": close, "Volume": 1e6,
+        })
+
+    stock, bench = ohlcv(0.001), ohlcv(0.0)
+    vix = pd.DataFrame({"Close": 20 + rng.normal(size=len(idx))}, index=idx)
+    market = build_market_frame(bench, vix)
+
+    result = FeatureEngineer(stock, market=market).create_all_features()
+
+    assert {"VIX", "Mkt_ret_20", "Rel_ROC_20", "Beta_60"} <= set(result.columns)
+    assert result["Target"].iloc[-20:].isna().all()
+    horizon = 20
+    date = result.index[-30]
+    i = idx.get_loc(date)
+    excess = (stock["Close"].iloc[i + horizon] / stock["Close"].iloc[i]
+              - bench["Close"].iloc[i + horizon] / bench["Close"].iloc[i])
+    assert result.loc[date, "Target"] == float(excess > 0)

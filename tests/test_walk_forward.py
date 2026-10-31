@@ -82,3 +82,38 @@ class TestBaselines:
         df = pd.DataFrame({"Close_to_SMA_200": [-0.1, 0.0, 0.2]})
 
         assert sma_trend_signals(df).tolist() == [0, 0, 1]
+
+
+def _panel(n_dates: int = 300, n_tickers: int = 3):
+    dates = pd.bdate_range("2020-01-01", periods=n_dates)
+    idx = dates.repeat(n_tickers)
+    rng = np.random.default_rng(0)
+    x = pd.DataFrame({"f": rng.normal(size=len(idx))}, index=idx)
+    y = pd.Series(rng.integers(0, 2, size=len(idx)).astype(float), index=idx)
+    return x, y
+
+
+def test_panel_pre_split_purges_by_unique_dates():
+    x, y = _panel()
+    x_pre, _ = pre_split_data(x, y, split_date="2020-12-01")
+    boundary = pd.Timestamp("2020-12-01")
+    dates_before = x.index[x.index < boundary].unique().sort_values()
+    assert x_pre.index.unique().max() == dates_before[-21]
+
+
+def test_panel_walk_forward_has_no_date_overlap():
+    x, y = _panel()
+    seen = []
+
+    class Recorder:
+        def fit(self, xt, yt):
+            seen.append(xt.index.max())
+            return self
+
+        def predict_proba(self, xv):
+            seen.append(xv.index.min())
+            return np.full((len(xv), 2), 0.5)
+
+    walk_forward_evaluate(Recorder, x, y, n_splits=3)
+    for train_max, val_min in zip(seen[0::2], seen[1::2], strict=True):
+        assert (val_min - train_max).days > 20

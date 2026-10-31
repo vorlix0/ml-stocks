@@ -2,8 +2,9 @@
 Walk-forward (expanding window) validation for time-series models.
 
 Each fold trains on all data before a cut-off and validates on the next
-block, with a gap of ``TARGET_HORIZON_DAYS`` samples between them so that
-forward-looking labels never overlap the validation block.
+block, with a gap of ``TARGET_HORIZON_DAYS`` unique dates between them so that
+forward-looking labels never overlap the validation block. Panels with several
+rows per date are split by date.
 """
 from __future__ import annotations
 
@@ -46,9 +47,11 @@ def pre_split_data(
     look into the test period.
     """
     split_date = split_date or MODEL_CONFIG.SPLIT_DATE
-    mask = (x.index < split_date) & y.notna().to_numpy()
+    mask = np.asarray(x.index < split_date) & y.notna().to_numpy()
     gap = FEATURE_CONFIG.TARGET_HORIZON_DAYS
-    return x[mask].iloc[:-gap], y[mask].iloc[:-gap]
+    x_pre, y_pre = x[mask], y[mask]
+    keep = np.asarray(x_pre.index.isin(x_pre.index.unique().sort_values()[:-gap]))
+    return x_pre[keep], y_pre[keep]
 
 
 def walk_forward_evaluate(
@@ -72,7 +75,10 @@ def walk_forward_evaluate(
     splitter = TimeSeriesSplit(n_splits=n_splits, gap=FEATURE_CONFIG.TARGET_HORIZON_DAYS)
 
     aucs: list[float] = []
-    for fold, (train_idx, val_idx) in enumerate(splitter.split(x), start=1):
+    dates = x.index.unique().sort_values()
+    for fold, (train_d, val_d) in enumerate(splitter.split(dates), start=1):
+        train_idx = np.flatnonzero(x.index.isin(dates[train_d]))
+        val_idx = np.flatnonzero(x.index.isin(dates[val_d]))
         y_val = y.iloc[val_idx]
         if y_val.nunique() < 2 or y.iloc[train_idx].nunique() < 2:
             logger.warning(f"Fold {fold}: single class, skipped")

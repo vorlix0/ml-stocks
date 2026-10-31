@@ -8,6 +8,7 @@ random, walk-forward) without modifying ModelTrainer.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 
 from config import FEATURE_CONFIG, MODEL_CONFIG
@@ -72,34 +73,37 @@ class ChronologicalSplitter(DataSplitter):
 
     def split(self, x: pd.DataFrame, y: pd.Series) -> DataSplit:
         """Split chronologically, purging overlapping target horizons at boundaries."""
-        x_train = x[x.index < self.split_date]
-        x_test = x[x.index >= self.split_date]
-        y_train = y[y.index < self.split_date]
-        y_test = y[y.index >= self.split_date]
+        # Gaps are counted in unique dates so panels (several rows per date)
+        # are purged the same way as a single ticker.
+        pre_mask = np.asarray(x.index < self.split_date)
+        x_train, y_train = x[pre_mask], y[pre_mask]
+        x_test, y_test = x[~pre_mask], y[~pre_mask]
 
         gap = FEATURE_CONFIG.TARGET_HORIZON_DAYS
-        if len(x_train) <= 2 * gap + 1:
+        dates = x_train.index.unique().sort_values()
+        if len(dates) <= 2 * gap + 1:
             raise ValueError(
-                f"Not enough pre-split samples ({len(x_train)}) for "
+                f"Not enough pre-split samples ({len(dates)}) for "
                 f"a {gap}-sample gap and train/validation partitions."
             )
 
-        # Exclude pre-test rows whose forward labels would cross split_date.
-        x_train = x_train.iloc[:-gap]
-        y_train = y_train.loc[x_train.index]
-
-        validation_start = int(len(x_train) * (1 - self.validation_size))
+        # Exclude pre-test dates whose forward labels would cross split_date.
+        dates = dates[:-gap]
+        validation_start = int(len(dates) * (1 - self.validation_size))
         train_end = validation_start - gap
-        if train_end <= 0 or validation_start >= len(x_train):
+        if train_end <= 0 or validation_start >= len(dates):
             raise ValueError(
                 "Not enough samples for train/validation partitions after "
                 f"applying the {gap}-sample gap."
             )
 
-        x_tr = x_train.iloc[:train_end]
-        y_tr = y_train.loc[x_tr.index]
-        x_val = x_train.iloc[validation_start:]
-        y_val = y_train.loc[x_val.index]
+        keep = np.asarray(x_train.index.isin(dates))
+        x_train, y_train = x_train[keep], y_train[keep]
+
+        tr_mask = np.asarray(x_train.index.isin(dates[:train_end]))
+        val_mask = np.asarray(x_train.index.isin(dates[validation_start:]))
+        x_tr, y_tr = x_train[tr_mask], y_train[tr_mask]
+        x_val, y_val = x_train[val_mask], y_train[val_mask]
 
         return DataSplit(
             X_train=x_train,

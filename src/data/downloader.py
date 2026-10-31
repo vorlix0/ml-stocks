@@ -112,7 +112,7 @@ class DataDownloader:
         """
         data = self.download()
 
-        destination = output_path or DATA_CONFIG.data_file
+        destination = output_path or DATA_CONFIG.raw_path(self.ticker)
 
         try:
             # Ensure directory exists
@@ -124,3 +124,32 @@ class DataDownloader:
         logger.info(f"Data saved to: {destination}")
 
         return data
+
+
+def download_universe() -> list[str]:
+    """
+    Downloads the whole training universe plus market-context series.
+
+    Market series (benchmark and VIX) are mandatory; single stock tickers
+    that fail to download are skipped with a warning.
+
+    Returns:
+        List of successfully downloaded stock tickers.
+
+    Raises:
+        DownloadError: When a market-context series or every stock fails
+    """
+    for market_ticker in (DATA_CONFIG.BENCHMARK_TICKER, DATA_CONFIG.VIX_TICKER):
+        DataDownloader(market_ticker).download_and_save()
+
+    downloaded: list[str] = []
+    for ticker in DATA_CONFIG.TICKERS:
+        try:
+            DataDownloader(ticker).download_and_save()
+            downloaded.append(ticker)
+        except (DownloadError, EmptyDataError, InvalidDataError) as e:
+            logger.warning(f"Skipping {ticker}: {e}")
+
+    if not downloaded:
+        raise DownloadError("No stock tickers could be downloaded")
+    return downloaded

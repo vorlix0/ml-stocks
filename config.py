@@ -17,17 +17,34 @@ CHARTS_DIR = OUTPUTS_DIR / "charts"
 @dataclass(frozen=True)
 class DataConfig:
     """Configuration for data downloading and processing."""
-    TICKER: str = "AAPL"
+    TICKER: str = "AAPL"  # Primary ticker (single-ticker helpers)
     START_DATE: str = "2015-01-01"
     END_DATE: str = "2024-12-21"
 
+    # Training universe (large, liquid US stocks across sectors)
+    TICKERS: tuple = (
+        "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "JPM", "V", "JNJ", "UNH",
+        "PG", "KO", "PEP", "WMT", "COST", "HD", "XOM", "CVX", "BAC", "WFC",
+        "CSCO", "ORCL", "INTC", "ADBE", "CRM", "MRK", "PFE", "ABT", "MCD", "NKE",
+    )
+
+    # Market context: benchmark for the relative target and volatility index
+    BENCHMARK_TICKER: str = "SPY"
+    VIX_TICKER: str = "^VIX"
+
+    @staticmethod
+    def raw_path(ticker: str) -> Path:
+        """Raw CSV path for *ticker* ('^' is dropped from file names)."""
+        return RAW_DATA_DIR / f"{ticker.replace('^', '')}_data.csv"
+
     @property
     def data_file(self) -> Path:
-        return RAW_DATA_DIR / f"{self.TICKER}_data.csv"
+        return self.raw_path(self.TICKER)
 
     @property
     def features_file(self) -> Path:
-        return PROCESSED_DATA_DIR / f"{self.TICKER}_features.csv"
+        """Panel of all tickers' features (one row per ticker and date)."""
+        return PROCESSED_DATA_DIR / "panel_features.csv"
 
 
 @dataclass(frozen=True)
@@ -54,7 +71,12 @@ class FeatureConfig:
 
     # Target configuration
     TARGET_HORIZON_DAYS: int = 20  # Predict price movement X days ahead
-    TARGET_THRESHOLD: float = 0.02  # Return threshold (2%)
+    TARGET_THRESHOLD: float = 0.02  # Absolute return threshold (no market data)
+    # With market data the target is "outperforms the benchmark by more than this"
+    TARGET_EXCESS_THRESHOLD: float = 0.0
+
+    # Market-context windows
+    MARKET_BETA_WINDOW: int = 60
 
 
 @dataclass(frozen=True)
@@ -87,7 +109,7 @@ class ModelConfig:
     # Raw price/volume-level columns are non-stationary; FeatureEngineer
     # provides normalized variants instead.
     EXCLUDED_COLUMNS: tuple = (
-        'Target', 'Close', 'Open', 'High', 'Low', 'Volume',
+        'Target', 'Ticker', 'Close', 'Open', 'High', 'Low', 'Volume',
         'High_Low', 'Price_Change',
         'SMA_10', 'SMA_20', 'SMA_50', 'SMA_200',
         'EMA_12', 'EMA_26', 'EMA_50', 'EMA_100',
@@ -105,7 +127,7 @@ class ModelConfig:
 class BacktestConfig:
     """Backtesting configuration."""
     # Strategy thresholds
-    PREDICTION_THRESHOLD: float = 0.38
+    PREDICTION_THRESHOLD: float = 0.5  # P(outperforming the benchmark)
     ADX_THRESHOLD: int = 25  # Strong trend indicator
 
     # Initial capital
