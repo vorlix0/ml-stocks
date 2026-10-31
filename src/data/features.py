@@ -76,8 +76,8 @@ class FeatureEngineer:
         self._add_feature_interactions()
         self._add_target()
 
-        # Drop NaN
-        self.df = self.df.dropna()
+        # Keep rows whose future target is unknown for inference/backtesting.
+        self.df = self.df.dropna(subset=self.df.columns.drop('Target'))
 
         return self.df
 
@@ -323,4 +323,8 @@ class FeatureEngineer:
         future_return = (
             (self.df['Close'].shift(-horizon) - self.df['Close']) / self.df['Close']
         )
-        self.df['Target'] = (future_return > threshold).astype(int)
+        self.df['Target'] = (
+            (future_return > threshold)
+            .where(future_return.notna())
+            .astype(float)
+        )

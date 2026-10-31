@@ -112,9 +112,9 @@ class HyperparameterTuner:
     def _objective(self, trial: Any) -> float:
         """Optuna objective function evaluated for each trial."""
         from sklearn.metrics import roc_auc_score
-        from sklearn.model_selection import train_test_split
 
         from config import MODEL_CONFIG
+        from src.model.data_splitter import ChronologicalSplitter
         from src.model.model_factory import create_model
 
         # ---- model-specific search space ----
@@ -128,25 +128,17 @@ class HyperparameterTuner:
         ]
         x = self.df[feature_cols].dropna()
         y = self.df.loc[x.index, "Target"]
-
-        split_date = MODEL_CONFIG.SPLIT_DATE
-        x_train = x[x.index < split_date]
-        y_train = y[y.index < split_date]
-
-        x_tr, x_val, y_tr, y_val = train_test_split(
-            x_train,
-            y_train,
-            test_size=MODEL_CONFIG.VALIDATION_SIZE,
-            random_state=MODEL_CONFIG.RANDOM_STATE,
-            shuffle=False,
-        )
+        valid_targets = y.notna()
+        x = x.loc[valid_targets]
+        y = y.loc[valid_targets]
+        split = ChronologicalSplitter().split(x, y)
 
         # ---- model training ----
         model = create_model(self.model_type, **params)
-        model.fit(x_tr, y_tr)
+        model.fit(split.X_tr, split.y_tr)
 
-        val_proba = model.predict_proba(x_val)[:, 1]
-        return float(roc_auc_score(y_val, val_proba))
+        val_proba = model.predict_proba(split.X_val)[:, 1]
+        return float(roc_auc_score(split.y_val, val_proba))
 
     def _suggest_params(self, trial: Any) -> dict[str, Any]:
         """Return model-specific hyperparameter suggestions for *trial*."""

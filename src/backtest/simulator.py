@@ -2,6 +2,8 @@
 Module for trading simulation with capital.
 """
 import logging
+from collections.abc import Sequence
+from typing import TypedDict
 
 import pandas as pd
 
@@ -10,10 +12,21 @@ from config import BACKTEST_CONFIG
 logger = logging.getLogger("forex_ml.backtest.simulator")
 
 
+class SimulationResults(TypedDict):
+    initial_capital: float
+    final_value: float
+    profit: float
+    roi: float
+
+
+class BacktestResults(SimulationResults):
+    portfolio_values: list[float]
+
+
 class TradingSimulator:
     """Class for trading simulation with capital."""
 
-    def __init__(self, df: pd.DataFrame, initial_capital: float = None):
+    def __init__(self, df: pd.DataFrame, initial_capital: float | None = None):
         """
         Initializes simulator.
 
@@ -24,7 +37,7 @@ class TradingSimulator:
         self.df = df
         self.initial_capital = initial_capital or BACKTEST_CONFIG.INITIAL_CAPITAL
 
-    def simulate(self, signals: pd.Series) -> dict[str, float]:
+    def simulate(self, signals: pd.Series) -> BacktestResults:
         """
         Simulates trading based on signals (vectorized implementation).
 
@@ -62,7 +75,7 @@ class TradingSimulator:
             'portfolio_values': portfolio_values,
         }
 
-    def simulate_buy_and_hold(self) -> dict[str, float]:
+    def simulate_buy_and_hold(self) -> SimulationResults:
         """
         Simulates Buy & Hold strategy.
 
@@ -83,7 +96,7 @@ class TradingSimulator:
 
     def print_simulation_results(
         self,
-        results: dict[str, float],
+        results: SimulationResults,
         name: str = "Strategy"
     ) -> None:
         """
@@ -101,7 +114,7 @@ class TradingSimulator:
 
     def compare_strategies(
         self,
-        results_list: list[dict[str, float]],
+        results_list: Sequence[SimulationResults],
         names: list[str]
     ) -> None:
         """

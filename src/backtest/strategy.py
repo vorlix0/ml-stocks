@@ -32,8 +32,8 @@ class TradingStrategy:
 
     def generate_signals(
         self,
-        threshold: float = None,
-        adx_threshold: int = None,
+        threshold: float | None = None,
+        adx_threshold: int | None = None,
         use_adx_filter: bool = False,
         signal_filter: SignalFilter | None = None,
     ) -> pd.Series:
