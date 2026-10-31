@@ -110,48 +110,43 @@ class HyperparameterTuner:
     # ------------------------------------------------------------------
 
     def _objective(self, trial: Any) -> float:
-        """Optuna objective function evaluated for each trial."""
-        from sklearn.metrics import roc_auc_score
-
+        """Optuna objective: mean walk-forward AUC minus fold-to-fold spread."""
         from config import MODEL_CONFIG
-        from src.model.data_splitter import ChronologicalSplitter
         from src.model.model_factory import create_model
+        from src.model.walk_forward import pre_split_data, walk_forward_evaluate
 
         # ---- model-specific search space ----
         params: dict[str, Any] = self._suggest_params(trial)
         params["random_state"] = MODEL_CONFIG.RANDOM_STATE
 
-        # ---- data preparation ----
+        # ---- data preparation (pre-test period only) ----
         feature_cols = [
             col for col in self.df.columns
             if col not in MODEL_CONFIG.EXCLUDED_COLUMNS
         ]
         x = self.df[feature_cols].dropna()
         y = self.df.loc[x.index, "Target"]
-        valid_targets = y.notna()
-        x = x.loc[valid_targets]
-        y = y.loc[valid_targets]
-        split = ChronologicalSplitter().split(x, y)
+        x, y = pre_split_data(x, y)
 
-        # ---- model training ----
-        model = create_model(self.model_type, **params)
-        model.fit(split.X_tr, split.y_tr)
-
-        val_proba = model.predict_proba(split.X_val)[:, 1]
-        return float(roc_auc_score(split.y_val, val_proba))
+        result = walk_forward_evaluate(
+            lambda: create_model(self.model_type, **params), x, y
+        )
+        if not result.fold_aucs:
+            return 0.0
+        return result.mean_auc - result.std_auc
 
     def _suggest_params(self, trial: Any) -> dict[str, Any]:
         """Return model-specific hyperparameter suggestions for *trial*."""
         common: dict[str, Any] = {
-            "n_estimators": trial.suggest_int("n_estimators", 50, 500),
-            "max_depth": trial.suggest_int("max_depth", 2, 8),
-            "min_samples_split": trial.suggest_int("min_samples_split", 2, 20),
-            "min_samples_leaf": trial.suggest_int("min_samples_leaf", 1, 10),
+            "n_estimators": trial.suggest_int("n_estimators", 50, 300),
+            "max_depth": trial.suggest_int("max_depth", 2, 4),
+            "min_samples_split": trial.suggest_int("min_samples_split", 20, 100),
+            "min_samples_leaf": trial.suggest_int("min_samples_leaf", 10, 100),
         }
 
         if self.model_type == "gradient_boosting":
             common["learning_rate"] = trial.suggest_float(
-                "learning_rate", 1e-3, 0.3, log=True
+                "learning_rate", 1e-3, 0.1, log=True
             )
             common["subsample"] = trial.suggest_float("subsample", 0.5, 1.0)
 

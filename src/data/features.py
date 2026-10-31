@@ -74,6 +74,7 @@ class FeatureEngineer:
         self._add_lag_features()
         self._add_trend_signals()
         self._add_feature_interactions()
+        self._add_normalized_features()
         self._add_target()
 
         # Keep rows whose future target is unknown for inference/backtesting.
@@ -310,6 +311,38 @@ class FeatureEngineer:
         self.df['Range50_vs_ATR'] = (
             (self.df['RollingHigh_50'] - self.df['RollingLow_50']) / atr_base
         ).clip(-10, 10)
+
+    def _add_normalized_features(self) -> None:
+        """
+        Adds scale-free versions of price-level indicators.
+
+        Raw levels (SMA, EMA, ATR, OBV, ...) drift with the price and leave
+        the training range on later data, so the model uses these ratios
+        instead (raw columns are listed in MODEL_CONFIG.EXCLUDED_COLUMNS).
+        """
+        close = self.df['Close']
+        for window in FEATURE_CONFIG.SMA_WINDOWS:
+            self.df[f'Close_to_SMA_{window}'] = close / self.df[f'SMA_{window}'] - 1
+        for window in FEATURE_CONFIG.EMA_WINDOWS:
+            self.df[f'Close_to_EMA_{window}'] = close / self.df[f'EMA_{window}'] - 1
+        for window in FEATURE_CONFIG.ROLLING_WINDOWS:
+            self.df[f'Close_to_RollingHigh_{window}'] = (
+                close / self.df[f'RollingHigh_{window}'] - 1
+            )
+            self.df[f'Close_to_RollingLow_{window}'] = (
+                close / self.df[f'RollingLow_{window}'] - 1
+            )
+
+        self.df['BB_width_norm'] = self.df['BB_width'] / close
+        self.df['MACD_norm'] = self.df['MACD'] / close
+        self.df['MACD_signal_norm'] = self.df['MACD_signal'] / close
+        self.df['EMA_12_26_spread_norm'] = self.df['EMA_12_26_spread'] / close
+        self.df['EMA_26_50_spread_norm'] = self.df['EMA_26_50_spread'] / close
+        self.df['High_Low_norm'] = self.df['High_Low'] / close
+        self.df['Price_Change_norm'] = self.df['Price_Change'] / close
+        self.df['OBV_ROC_20'] = (
+            self.df['OBV'].diff(20) / self.df['Volume_SMA'].clip(lower=1) / 20
+        )
 
     def _add_target(self) -> None:
         """

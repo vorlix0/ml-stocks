@@ -68,11 +68,15 @@ class ModelConfig:
     # Model type – must be a key in src.model.model_factory.MODEL_REGISTRY
     MODEL_TYPE: str = "gradient_boosting"
 
-    # GradientBoosting hyperparameters
-    N_ESTIMATORS: int = 300
-    MAX_DEPTH: int = 5
-    LEARNING_RATE: float = 0.05
-    SUBSAMPLE: float = 0.8
+    # Walk-forward validation folds (expanding window, pre-SPLIT_DATE data only)
+    WALK_FORWARD_SPLITS: int = 5
+
+    # GradientBoosting hyperparameters (strongly regularized: small, shallow trees)
+    N_ESTIMATORS: int = 100
+    MAX_DEPTH: int = 2
+    LEARNING_RATE: float = 0.03
+    SUBSAMPLE: float = 0.7
+    MIN_SAMPLES_LEAF: int = 40
 
     # Model file
     @property
@@ -80,7 +84,21 @@ class ModelConfig:
         return MODELS_DIR / "model.joblib"
 
     # Excluded columns from features
-    EXCLUDED_COLUMNS: tuple = ('Target', 'Close', 'Open', 'High', 'Low', 'Volume')
+    # Raw price/volume-level columns are non-stationary; FeatureEngineer
+    # provides normalized variants instead.
+    EXCLUDED_COLUMNS: tuple = (
+        'Target', 'Close', 'Open', 'High', 'Low', 'Volume',
+        'High_Low', 'Price_Change',
+        'SMA_10', 'SMA_20', 'SMA_50', 'SMA_200',
+        'EMA_12', 'EMA_26', 'EMA_50', 'EMA_100',
+        'RollingHigh_20', 'RollingLow_20', 'RollingHigh_50', 'RollingLow_50',
+        'BB_high', 'BB_low', 'BB_width', 'MACD', 'MACD_signal',
+        'ATR', 'Volume_SMA', 'OBV',
+        'EMA_12_26_spread', 'EMA_26_50_spread',
+        'Momentum_10d', 'Momentum_20d',
+        'Close_lag_1', 'Close_lag_3', 'Close_lag_5', 'Close_lag_10',
+        'BB_width_x_ATR', 'EMA_spread_x_MACD', 'Trend_5d_x_Momentum',
+    )
 
 
 @dataclass(frozen=True)
