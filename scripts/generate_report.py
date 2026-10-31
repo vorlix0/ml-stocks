@@ -17,6 +17,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
+
 # ---------------------------------------------------------------------------
 # Make sure the project root is on sys.path so imports work whether this
 # script is executed from the repo root or from the scripts/ subfolder.
@@ -26,7 +28,8 @@ sys.path.insert(0, str(ROOT))
 os.chdir(ROOT)  # config.py resolves paths relative to cwd
 
 from config import BACKTEST_CONFIG, DATA_CONFIG, MODEL_CONFIG  # noqa: E402
-from src.backtest import RiskMetrics, TradingSimulator, TradingStrategy  # noqa: E402
+from src.backtest import RiskMetrics  # noqa: E402
+from src.backtest.panel import panel_strategy_returns  # noqa: E402
 from src.model import ModelTrainer  # noqa: E402
 from src.utils import load_csv_safe, validate_features_data  # noqa: E402
 
@@ -63,59 +66,50 @@ def _git_sha() -> str:
 # ---------------------------------------------------------------------------
 
 def run_backtest() -> dict:
-    """Run backtest and return a dict with all metrics and series."""
+    """Run the equal-weight multi-ticker backtest and return metrics and series."""
     model = ModelTrainer.load_model()
     df = load_csv_safe(DATA_CONFIG.features_file)
     validate_features_data(df)
 
-    split_date = MODEL_CONFIG.SPLIT_DATE
     feature_cols = [col for col in df.columns if col not in MODEL_CONFIG.EXCLUDED_COLUMNS]
-    df_test = df[df.index >= split_date].copy()
-    x_test = df_test[feature_cols]
+    df_test = df[df.index >= MODEL_CONFIG.SPLIT_DATE].copy()
+    proba = model.predict_proba(df_test[feature_cols])[:, 1]
+    threshold = BACKTEST_CONFIG.PREDICTION_THRESHOLD
 
-    y_pred_proba = model.predict_proba(x_test)[:, 1]
-    strategy = TradingStrategy(df_test, y_pred_proba)
+    returns_no_filter, returns_market = panel_strategy_returns(df_test, proba, threshold)
+    proba_adx = np.where(df_test["ADX"] > BACKTEST_CONFIG.ADX_THRESHOLD, proba, 0.0)
+    returns_adx, _ = panel_strategy_returns(df_test, proba_adx, threshold)
 
-    signals_no_filter = strategy.generate_signals(use_adx_filter=False)
-    signals_adx = strategy.generate_signals(use_adx_filter=True)
+    spy_close = load_csv_safe(
+        DATA_CONFIG.raw_path(DATA_CONFIG.BENCHMARK_TICKER), required_columns=["Close"]
+    )["Close"]
+    returns_spy = spy_close.pct_change().reindex(returns_market.index).fillna(0)
 
-    returns_no_filter = strategy.calculate_strategy_returns(signals_no_filter)
-    returns_adx = strategy.calculate_strategy_returns(signals_adx)
-
-    cum_market = strategy.get_market_returns()
-    cum_no_filter = strategy.calculate_cumulative_returns(returns_no_filter)
-    cum_adx = strategy.calculate_cumulative_returns(returns_adx)
-
-    simulator = TradingSimulator(df_test)
-    results_market = simulator.simulate_buy_and_hold()
-    results_no_filter = simulator.simulate(signals_no_filter)
-    results_adx = simulator.simulate(signals_adx)
-
-    metrics_market = RiskMetrics(df_test["Returns"], cum_market)
-    metrics_no_filter = RiskMetrics(returns_no_filter, cum_no_filter)
-    metrics_adx = RiskMetrics(returns_adx, cum_adx)
+    daily = {
+        f"{DATA_CONFIG.BENCHMARK_TICKER} (Buy & Hold)": returns_spy,
+        "Equal-weight Buy & Hold": returns_market,
+        "ML Strategy (no filter)": returns_no_filter,
+        "ML Strategy (ADX filter)": returns_adx,
+    }
+    cum = {name: (1 + r).cumprod() for name, r in daily.items()}
+    capital = BACKTEST_CONFIG.INITIAL_CAPITAL
 
     return {
         "results": {
-            "Market (Buy & Hold)": results_market,
-            "ML Strategy (no filter)": results_no_filter,
-            "ML Strategy (ADX filter)": results_adx,
+            name: {
+                "final_value": capital * series.iloc[-1],
+                "profit": capital * (series.iloc[-1] - 1),
+            }
+            for name, series in cum.items()
         },
         "risk": {
-            "Market (Buy & Hold)": metrics_market.get_all_metrics(),
-            "ML Strategy (no filter)": metrics_no_filter.get_all_metrics(),
-            "ML Strategy (ADX filter)": metrics_adx.get_all_metrics(),
+            name: RiskMetrics(daily[name], cum[name]).get_all_metrics() for name in daily
         },
-        "cum": {
-            "Market (Buy & Hold)": cum_market,
-            "ML Strategy (no filter)": cum_no_filter,
-            "ML Strategy (ADX filter)": cum_adx,
-        },
-        "test_start": str(df_test.index[0].date()),
-        "test_end": str(df_test.index[-1].date()),
-        "ticker": DATA_CONFIG.TICKER,
+        "cum": cum,
+        "test_start": str(df_test.index.min().date()),
+        "test_end": str(df_test.index.max().date()),
+        "ticker": f"{df_test['Ticker'].nunique()} tickers (equal-weight)",
     }
-
 
 def build_html(data: dict) -> str:
     """Build and return the full HTML report string."""
