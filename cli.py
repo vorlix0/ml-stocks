@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
+import numpy as np
 import pandas as pd
 import typer
 
@@ -37,12 +38,11 @@ app = typer.Typer(
 @app.command()
 def download() -> None:
     """Download raw market data from Yahoo Finance."""
-    from src.data import DataDownloader
+    from src.data import download_universe
 
-    typer.echo("📥 Downloading market data …")
-    downloader = DataDownloader()
-    downloader.download_and_save()
-    typer.echo("✅ Download complete.")
+    typer.echo("📥 Downloading market data (universe + SPY + VIX) …")
+    tickers = download_universe()
+    typer.echo(f"✅ Download complete: {len(tickers)} tickers.")
 
 
 # --------------------------------------------------------------------------- #
@@ -55,26 +55,43 @@ def process() -> None:
     """Process raw data and engineer features."""
     from config import DATA_CONFIG
     from src.data import FeatureEngineer
+    from src.data.features import build_market_frame
     from src.exceptions import DataNotFoundError, ForexMLError
     from src.utils import load_csv_safe, validate_ohlcv_data
 
     typer.echo("⚙️  Processing data …")
-    input_file = DATA_CONFIG.data_file
     output_file = DATA_CONFIG.features_file
+    ohlcv = ["Open", "High", "Low", "Close", "Volume"]
 
     try:
-        data = load_csv_safe(
-            input_file,
-            required_columns=["Open", "High", "Low", "Close", "Volume"],
+        market = build_market_frame(
+            load_csv_safe(DATA_CONFIG.raw_path(DATA_CONFIG.BENCHMARK_TICKER), required_columns=ohlcv),
+            load_csv_safe(DATA_CONFIG.raw_path(DATA_CONFIG.VIX_TICKER), required_columns=["Close"]),
         )
-        validate_ohlcv_data(data)
 
-        feature_engineer = FeatureEngineer(data)
-        data_features = feature_engineer.create_all_features()
+        frames = []
+        for ticker in DATA_CONFIG.TICKERS:
+            raw_file = DATA_CONFIG.raw_path(ticker)
+            if not raw_file.exists():
+                typer.echo(f"⚠️  Skipping {ticker}: {raw_file} not found")
+                continue
+            data = load_csv_safe(raw_file, required_columns=ohlcv)
+            validate_ohlcv_data(data)
+            features = FeatureEngineer(data, market=market).create_all_features()
+            features.insert(0, "Ticker", ticker)
+            frames.append(features)
+
+        if not frames:
+            raise DataNotFoundError("No raw ticker data found")
+
+        panel = pd.concat(frames).sort_index(kind="stable")
         output_file.parent.mkdir(parents=True, exist_ok=True)
-        data_features.to_csv(output_file)
+        panel.to_csv(output_file)
 
-        typer.echo(f"✅ Features saved to: {output_file}  (shape: {data_features.shape})")
+        typer.echo(
+            f"✅ Panel saved to: {output_file}  "
+            f"(shape: {panel.shape}, tickers: {len(frames)})"
+        )
     except DataNotFoundError as e:
         typer.echo(f"❌ {e}", err=True)
         typer.echo("Run first: python cli.py download", err=True)
@@ -214,75 +231,67 @@ def tune(
 def backtest() -> None:
     """Run backtesting on the trained model."""
     from config import BACKTEST_CONFIG, DATA_CONFIG, MODEL_CONFIG
-    from src.backtest import RiskMetrics, TradingSimulator, TradingStrategy
+    from src.backtest import RiskMetrics
+    from src.backtest.panel import panel_strategy_returns
     from src.exceptions import DataNotFoundError, ForexMLError, ModelNotFoundError
     from src.model import ModelTrainer
     from src.utils import Plotter, load_csv_safe, validate_features_data
 
-    typer.echo("📊 Running backtest …")
+    typer.echo("📊 Running backtest (equal-weight portfolio across tickers) …")
     try:
         model = ModelTrainer.load_model()
         df = load_csv_safe(DATA_CONFIG.features_file)
         validate_features_data(df)
 
-        split_date = MODEL_CONFIG.SPLIT_DATE
         feature_cols = [
             col for col in df.columns if col not in MODEL_CONFIG.EXCLUDED_COLUMNS
         ]
-        df_test = df[df.index >= split_date].copy()
-        x_test = df_test[feature_cols]
+        df_test = df[df.index >= MODEL_CONFIG.SPLIT_DATE].copy()
+        proba = model.predict_proba(df_test[feature_cols])[:, 1]
+        threshold = BACKTEST_CONFIG.PREDICTION_THRESHOLD
 
-        y_pred_proba = model.predict_proba(x_test)[:, 1]
-        strategy = TradingStrategy(df_test, y_pred_proba)
+        returns_no_filter, returns_market = panel_strategy_returns(df_test, proba, threshold)
+        proba_adx = np.where(df_test["ADX"] > BACKTEST_CONFIG.ADX_THRESHOLD, proba, 0.0)
+        returns_adx, _ = panel_strategy_returns(df_test, proba_adx, threshold)
 
-        signals_no_filter = strategy.generate_signals(use_adx_filter=False)
-        signals_adx = strategy.generate_signals(use_adx_filter=True)
+        cum_market = (1 + returns_market).cumprod()
+        cum_no_filter = (1 + returns_no_filter).cumprod()
+        cum_adx = (1 + returns_adx).cumprod()
 
-        returns_no_filter = strategy.calculate_strategy_returns(signals_no_filter)
-        returns_adx = strategy.calculate_strategy_returns(signals_adx)
+        market_close = load_csv_safe(
+            DATA_CONFIG.raw_path(DATA_CONFIG.BENCHMARK_TICKER), required_columns=["Close"]
+        )["Close"]
+        spy_returns = market_close.pct_change().reindex(returns_market.index).fillna(0)
+        cum_spy = (1 + spy_returns).cumprod()
 
-        cum_market = strategy.get_market_returns()
-        cum_no_filter = strategy.calculate_cumulative_returns(returns_no_filter)
-        cum_adx = strategy.calculate_cumulative_returns(returns_adx)
-
-        typer.echo(f"\nMarket Return: {cum_market.iloc[-1] - 1:.2%}")
+        typer.echo(f"\nEqual-weight Buy & Hold: {cum_market.iloc[-1] - 1:.2%}")
+        typer.echo(f"{DATA_CONFIG.BENCHMARK_TICKER} Buy & Hold: {cum_spy.iloc[-1] - 1:.2%}")
         typer.echo(f"Strategy Return (no filter): {cum_no_filter.iloc[-1] - 1:.2%}")
         typer.echo(f"Strategy Return (ADX filter): {cum_adx.iloc[-1] - 1:.2%}")
 
-        simulator = TradingSimulator(df_test)
-        results_market = simulator.simulate_buy_and_hold()
-        results_no_filter = simulator.simulate(signals_no_filter)
-        results_adx = simulator.simulate(signals_adx)
-        simulator.compare_strategies(
-            [results_market, results_no_filter, results_adx],
-            ["Buy & Hold", "No filter", "ADX filter"],
-        )
-
-        metrics_market = RiskMetrics(df_test["Returns"], cum_market)
-        metrics_no_filter = RiskMetrics(returns_no_filter, cum_no_filter)
-        metrics_adx = RiskMetrics(returns_adx, cum_adx)
         RiskMetrics.print_comparison(
-            [metrics_market, metrics_no_filter, metrics_adx],
-            ["Market", "without filter", "with ADX filter"],
+            [
+                RiskMetrics(spy_returns, cum_spy),
+                RiskMetrics(returns_market, cum_market),
+                RiskMetrics(returns_no_filter, cum_no_filter),
+                RiskMetrics(returns_adx, cum_adx),
+            ],
+            [DATA_CONFIG.BENCHMARK_TICKER, "Equal-weight B&H", "without filter", "with ADX filter"],
         )
 
+        curves = {
+            f"{DATA_CONFIG.BENCHMARK_TICKER} Buy & Hold": cum_spy,
+            "Equal-weight Buy & Hold": cum_market,
+            "ML Strategy (without filter)": cum_no_filter,
+            "ML Strategy (with ADX filter)": cum_adx,
+        }
         Plotter.plot_backtest(
-            df_test.index,
-            {
-                "Buy & Hold": cum_market,
-                "ML Strategy (without filter)": cum_no_filter,
-                "ML Strategy (with ADX filter)": cum_adx,
-            },
-            save_path=BACKTEST_CONFIG.backtest_plot_file,
+            cum_market.index, curves, save_path=BACKTEST_CONFIG.backtest_plot_file
         )
         Plotter.plot_portfolio_with_adx(
-            df_test.index,
-            {
-                "Buy & Hold": cum_market,
-                "ML Strategy (without filter)": cum_no_filter,
-                "ML Strategy (with ADX filter)": cum_adx,
-            },
-            df_test["ADX"],
+            cum_market.index,
+            curves,
+            df_test.groupby(level=0)["ADX"].mean(),
             save_path=BACKTEST_CONFIG.portfolio_plot_file,
         )
 
@@ -310,7 +319,8 @@ def compare() -> None:
     """Compare the main model with simple baselines (walk-forward AUC + test returns)."""
     from sklearn.metrics import roc_auc_score
 
-    from config import DATA_CONFIG, MODEL_CONFIG
+    from config import BACKTEST_CONFIG, DATA_CONFIG, MODEL_CONFIG
+    from src.backtest.panel import panel_strategy_returns
     from src.exceptions import DataNotFoundError, ForexMLError
     from src.model import (
         create_logistic_baseline,
@@ -336,9 +346,10 @@ def compare() -> None:
     feature_cols = [c for c in df.columns if c not in MODEL_CONFIG.EXCLUDED_COLUMNS]
     x_pre, y_pre = pre_split_data(df[feature_cols], df["Target"])
     df_test = df[df.index >= MODEL_CONFIG.SPLIT_DATE]
-    labelled = df_test["Target"].notna()
-    market_return = (1 + df_test["Returns"]).prod() - 1
-    typer.echo(f"Buy & Hold (test period): {market_return:.2%}\n")
+    labelled = df_test["Target"].notna().to_numpy()
+    threshold = BACKTEST_CONFIG.PREDICTION_THRESHOLD
+    _, market_daily = panel_strategy_returns(df_test, np.zeros(len(df_test)), threshold)
+    typer.echo(f"Equal-weight Buy & Hold (test period): {(1 + market_daily).prod() - 1:.2%}\n")
 
     builders = {
         "GradientBoosting (config)": lambda: create_model(
@@ -361,18 +372,18 @@ def compare() -> None:
         model = builder()
         model.fit(x_pre, y_pre)
         proba = model.predict_proba(df_test[feature_cols])[:, 1]
-        test_auc = roc_auc_score(df_test["Target"][labelled], proba[labelled.to_numpy()])
-        signals = pd.Series((proba > 0.5).astype(int), index=df_test.index)
-        strat = (signals.shift(1).fillna(0) * df_test["Returns"] + 1).prod() - 1
+        test_auc = roc_auc_score(df_test["Target"].to_numpy()[labelled], proba[labelled])
+        strat, _ = panel_strategy_returns(df_test, proba, threshold)
         typer.echo(
             f"{name:28} {wf.mean_auc:6.3f}±{wf.std_auc:5.3f} {test_auc:9.3f} "
-            f"{signals.mean():9.0%} {strat:9.2%}"
+            f"{(proba > threshold).mean():9.0%} {(1 + strat).prod() - 1:9.2%}"
         )
 
-    trend = sma_trend_signals(df_test)
-    trend_ret = (trend.shift(1).fillna(0) * df_test["Returns"] + 1).prod() - 1
+    trend = sma_trend_signals(df_test).to_numpy()
+    trend_ret, _ = panel_strategy_returns(df_test, trend, 0.5)
     typer.echo(
-        f"{'Close > SMA_200 rule':28} {'-':>14} {'-':>9} {trend.mean():9.0%} {trend_ret:9.2%}"
+        f"{'Close > SMA_200 rule':28} {'-':>14} {'-':>9} "
+        f"{trend.mean():9.0%} {(1 + trend_ret).prod() - 1:9.2%}"
     )
 
 

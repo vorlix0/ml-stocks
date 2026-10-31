@@ -63,8 +63,8 @@ pytest tests/test_metrics.py -v
 ```
 forex-ml-hf/
 ├── data/
-│   ├── raw/              # Raw downloaded data (AAPL_data.csv)
-│   └── processed/        # Processed features (AAPL_features.csv)
+│   ├── raw/              # Raw downloaded data ({TICKER}_data.csv, SPY, VIX)
+│   └── processed/        # Panel of all tickers' features (panel_features.csv)
 ├── models/               # Trained models (model.joblib)
 ├── outputs/
 │   └── charts/           # Generated charts (backtest.png, etc.)
@@ -82,7 +82,7 @@ forex-ml-hf/
 ## ⚙️ Configuration
 
 Edit `config.py` to change:
-- **Ticker symbol** (default: AAPL)
+- **Ticker universe** (`DataConfig.TICKERS`, 30 large caps) plus SPY and ^VIX as market context; the target is "beats SPY over the next 20 days"
 - **Date range** for data
 - **Model hyperparameters** (n_estimators, max_depth, etc.)
 - **Strategy thresholds** (prediction threshold, ADX filter)

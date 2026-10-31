@@ -1,7 +1,7 @@
 """
 Data module - downloading and processing data.
 """
-from .downloader import DataDownloader
+from .downloader import DataDownloader, download_universe
 from .features import FeatureEngineer
 
-__all__ = ['FeatureEngineer', 'DataDownloader']
+__all__ = ['FeatureEngineer', 'DataDownloader', 'download_universe']

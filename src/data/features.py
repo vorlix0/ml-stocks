@@ -9,18 +9,47 @@ import ta
 from config import FEATURE_CONFIG
 from src.exceptions import EmptyDataError, InvalidDataError
 
+MARKET_COLUMNS = ['Benchmark_Close', 'VIX']
+
+
+def build_market_frame(benchmark: pd.DataFrame, vix: pd.DataFrame) -> pd.DataFrame:
+    """
+    Combines benchmark (e.g. SPY) and VIX closes into one market-context frame.
+
+    Args:
+        benchmark: OHLCV DataFrame of the benchmark
+        vix: OHLCV DataFrame of the volatility index
+
+    Returns:
+        DataFrame indexed by date with ``Benchmark_Close`` and ``VIX`` columns
+
+    Raises:
+        InvalidDataError: When either input has no 'Close' column
+    """
+    for name, frame in (('benchmark', benchmark), ('VIX', vix)):
+        if 'Close' not in frame.columns:
+            raise InvalidDataError(f"Missing 'Close' column in {name} data")
+
+    return pd.DataFrame({
+        'Benchmark_Close': benchmark['Close'],
+        'VIX': vix['Close'],
+    }).sort_index().ffill()
+
 
 class FeatureEngineer:
     """Class for creating features from OHLCV data."""
 
     REQUIRED_COLUMNS = ['Open', 'High', 'Low', 'Close', 'Volume']
 
-    def __init__(self, df: pd.DataFrame):
+    def __init__(self, df: pd.DataFrame, market: pd.DataFrame | None = None):
         """
         Initializes FeatureEngineer.
 
         Args:
             df: DataFrame with OHLCV data (Close, Open, High, Low, Volume)
+            market: Optional market context from :func:`build_market_frame`.
+                When given, market features are added and the target becomes
+                "outperforms the benchmark" instead of an absolute return.
 
         Raises:
             InvalidDataError: When required columns are missing
@@ -28,6 +57,16 @@ class FeatureEngineer:
         """
         self._validate_input(df)
         self.df = df.copy()
+        self.market = self._validate_market(market)
+
+    @staticmethod
+    def _validate_market(market: pd.DataFrame | None) -> pd.DataFrame | None:
+        if market is None:
+            return None
+        missing_cols = set(MARKET_COLUMNS) - set(market.columns)
+        if missing_cols:
+            raise InvalidDataError(f"Missing market columns: {missing_cols}")
+        return market
 
     def _validate_input(self, df: pd.DataFrame) -> None:
         """
@@ -75,6 +114,8 @@ class FeatureEngineer:
         self._add_trend_signals()
         self._add_feature_interactions()
         self._add_normalized_features()
+        if self.market is not None:
+            self._add_market_features()
         self._add_target()
 
         # Keep rows whose future target is unknown for inference/backtesting.
@@ -344,20 +385,63 @@ class FeatureEngineer:
             self.df['OBV'].diff(20) / self.df['Volume_SMA'].clip(lower=1) / 20
         )
 
+    def _aligned_market(self) -> pd.DataFrame:
+        """Market series aligned to this stock's trading days (forward-filled)."""
+        assert self.market is not None
+        return self.market.reindex(self.market.index.union(self.df.index)).ffill().reindex(
+            self.df.index
+        )
+
+    def _add_market_features(self) -> None:
+        """
+        Adds benchmark and VIX context plus the stock's relative behaviour.
+
+        Creates columns: Mkt_ret_{window}, Mkt_Close_to_SMA_200, Mkt_vol_20,
+        VIX, VIX_chg_5, VIX_to_SMA_20, Rel_ROC_{window}, Beta_{window}
+        """
+        market = self._aligned_market()
+        bench = market['Benchmark_Close']
+        vix = market['VIX']
+        bench_ret = bench.pct_change()
+
+        for window in FEATURE_CONFIG.ROC_WINDOWS:
+            self.df[f'Mkt_ret_{window}'] = bench.pct_change(periods=window)
+            self.df[f'Rel_ROC_{window}'] = (
+                self.df[f'ROC_{window}'] - self.df[f'Mkt_ret_{window}']
+            )
+        self.df['Mkt_ret_60'] = bench.pct_change(periods=60)
+        self.df['Mkt_Close_to_SMA_200'] = bench / bench.rolling(200).mean() - 1
+        self.df['Mkt_vol_20'] = bench_ret.rolling(20).std()
+
+        self.df['VIX'] = vix
+        self.df['VIX_chg_5'] = vix.pct_change(periods=5)
+        self.df['VIX_to_SMA_20'] = vix / vix.rolling(20).mean() - 1
+
+        beta_window = FEATURE_CONFIG.MARKET_BETA_WINDOW
+        self.df[f'Beta_{beta_window}'] = (
+            self.df['Returns'].rolling(beta_window).cov(bench_ret)
+            / bench_ret.rolling(beta_window).var()
+        ).clip(-5, 5)
+
     def _add_target(self) -> None:
         """
         Adds target variable.
 
-        Creates columns: Target (1 if future return > threshold, else 0)
+        Creates columns: Target. Without market data: 1 if the future return
+        exceeds TARGET_THRESHOLD. With market data: 1 if the stock beats the
+        benchmark's future return by more than TARGET_EXCESS_THRESHOLD.
+        Rows whose future is not yet known keep NaN.
         """
         horizon = FEATURE_CONFIG.TARGET_HORIZON_DAYS
-        threshold = FEATURE_CONFIG.TARGET_THRESHOLD
 
         future_return = (
             (self.df['Close'].shift(-horizon) - self.df['Close']) / self.df['Close']
         )
-        self.df['Target'] = (
-            (future_return > threshold)
-            .where(future_return.notna())
-            .astype(float)
-        )
+        if self.market is None:
+            signal = future_return > FEATURE_CONFIG.TARGET_THRESHOLD
+        else:
+            bench = self._aligned_market()['Benchmark_Close']
+            future_return = future_return - (bench.shift(-horizon) / bench - 1)
+            signal = future_return > FEATURE_CONFIG.TARGET_EXCESS_THRESHOLD
+
+        self.df['Target'] = signal.where(future_return.notna()).astype(float)

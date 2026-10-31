@@ -150,7 +150,7 @@ All settings are stored in `config.py`. Edit this file to customise the pipeline
 
 | Setting | Default | Description |
 |---|---|---|
-| `DataConfig.TICKER` | `AAPL` | Stock ticker symbol (e.g. `MSFT`, `GOOGL`) |
+| `DataConfig.TICKERS` | 30 large caps | Training universe (SPY and ^VIX are always downloaded as market context) |
 | `DataConfig.START_DATE` | `2015-01-01` | Start of the historical data range |
 | `DataConfig.END_DATE` | `2024-12-21` | End of the historical data range |
 | `ModelConfig.SPLIT_DATE` | `2023-01-01` | Date separating training and test sets |
@@ -285,8 +285,8 @@ Charts saved: outputs/charts/backtest.png, outputs/charts/portfolio_value.png
 
 | File | Description |
 |---|---|
-| `data/raw/AAPL_data.csv` | Raw OHLCV price data |
-| `data/processed/AAPL_features.csv` | Processed data with all technical indicators |
+| `data/raw/{TICKER}_data.csv` | Raw OHLCV price data per ticker (incl. SPY, VIX) |
+| `data/processed/panel_features.csv` | Panel (all tickers) with indicators, market features and relative target |
 | `models/model.joblib` | Trained GradientBoosting model |
 | `outputs/charts/feature_importance.png` | Top 20 most important features |
 | `outputs/charts/backtest.png` | Strategy returns vs Buy & Hold |
