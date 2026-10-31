@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
+import pandas as pd
 import typer
 
 app = typer.Typer(
@@ -297,6 +298,82 @@ def backtest() -> None:
     except ForexMLError as e:
         typer.echo(f"❌ {e}", err=True)
         raise typer.Exit(code=1) from None
+
+
+# --------------------------------------------------------------------------- #
+# compare                                                                      #
+# --------------------------------------------------------------------------- #
+
+
+@app.command()
+def compare() -> None:
+    """Compare the main model with simple baselines (walk-forward AUC + test returns)."""
+    from sklearn.metrics import roc_auc_score
+
+    from config import DATA_CONFIG, MODEL_CONFIG
+    from src.exceptions import DataNotFoundError, ForexMLError
+    from src.model import (
+        create_logistic_baseline,
+        create_model,
+        pre_split_data,
+        sma_trend_signals,
+        walk_forward_evaluate,
+    )
+    from src.utils import load_csv_safe, validate_features_data
+
+    typer.echo("⚖️  Comparing model with baselines …")
+    try:
+        df = load_csv_safe(DATA_CONFIG.features_file)
+        validate_features_data(df)
+    except DataNotFoundError as e:
+        typer.echo(f"❌ {e}", err=True)
+        typer.echo("Run first: python cli.py process", err=True)
+        raise typer.Exit(code=1) from None
+    except ForexMLError as e:
+        typer.echo(f"❌ {e}", err=True)
+        raise typer.Exit(code=1) from None
+
+    feature_cols = [c for c in df.columns if c not in MODEL_CONFIG.EXCLUDED_COLUMNS]
+    x_pre, y_pre = pre_split_data(df[feature_cols], df["Target"])
+    df_test = df[df.index >= MODEL_CONFIG.SPLIT_DATE]
+    labelled = df_test["Target"].notna()
+    market_return = (1 + df_test["Returns"]).prod() - 1
+    typer.echo(f"Buy & Hold (test period): {market_return:.2%}\n")
+
+    builders = {
+        "GradientBoosting (config)": lambda: create_model(
+            MODEL_CONFIG.MODEL_TYPE,
+            n_estimators=MODEL_CONFIG.N_ESTIMATORS,
+            max_depth=MODEL_CONFIG.MAX_DEPTH,
+            learning_rate=MODEL_CONFIG.LEARNING_RATE,
+            subsample=MODEL_CONFIG.SUBSAMPLE,
+            min_samples_leaf=MODEL_CONFIG.MIN_SAMPLES_LEAF,
+            random_state=MODEL_CONFIG.RANDOM_STATE,
+        ),
+        "LogisticRegression": create_logistic_baseline,
+    }
+
+    header = f"{'Model':28} {'WF AUC':>14} {'Test AUC':>9} {'Exposure':>9} {'Return':>9}"
+    typer.echo(header)
+    typer.echo("-" * len(header))
+    for name, builder in builders.items():
+        wf = walk_forward_evaluate(builder, x_pre, y_pre)
+        model = builder()
+        model.fit(x_pre, y_pre)
+        proba = model.predict_proba(df_test[feature_cols])[:, 1]
+        test_auc = roc_auc_score(df_test["Target"][labelled], proba[labelled.to_numpy()])
+        signals = pd.Series((proba > 0.5).astype(int), index=df_test.index)
+        strat = (signals.shift(1).fillna(0) * df_test["Returns"] + 1).prod() - 1
+        typer.echo(
+            f"{name:28} {wf.mean_auc:6.3f}±{wf.std_auc:5.3f} {test_auc:9.3f} "
+            f"{signals.mean():9.0%} {strat:9.2%}"
+        )
+
+    trend = sma_trend_signals(df_test)
+    trend_ret = (trend.shift(1).fillna(0) * df_test["Returns"] + 1).prod() - 1
+    typer.echo(
+        f"{'Close > SMA_200 rule':28} {'-':>14} {'-':>9} {trend.mean():9.0%} {trend_ret:9.2%}"
+    )
 
 
 # --------------------------------------------------------------------------- #

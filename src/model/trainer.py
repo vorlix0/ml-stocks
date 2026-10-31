@@ -145,6 +145,7 @@ class ModelTrainer(BaseTrainer):
             max_depth=MODEL_CONFIG.MAX_DEPTH,
             learning_rate=MODEL_CONFIG.LEARNING_RATE,
             subsample=MODEL_CONFIG.SUBSAMPLE,
+            min_samples_leaf=MODEL_CONFIG.MIN_SAMPLES_LEAF,
             random_state=MODEL_CONFIG.RANDOM_STATE,
             verbose=0,
         )
@@ -177,6 +178,7 @@ class ModelTrainer(BaseTrainer):
             "max_depth": MODEL_CONFIG.MAX_DEPTH,
             "learning_rate": MODEL_CONFIG.LEARNING_RATE,
             "subsample": MODEL_CONFIG.SUBSAMPLE,
+            "min_samples_leaf": MODEL_CONFIG.MIN_SAMPLES_LEAF,
             "random_state": MODEL_CONFIG.RANDOM_STATE,
         }
 
